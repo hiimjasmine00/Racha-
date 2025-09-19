@@ -32,6 +32,7 @@ struct StreakData {
     std::string lastDay = "";
     std::string equippedBadge = ""; 
 
+
     // Definir categorías de insignias
     enum class BadgeCategory {
         COMMON,
