@@ -1,4 +1,9 @@
-# New Animation!!!! - 1.4.9 BETA
+# 1.5.3 BETA
+- New progress bar that appears upon completing a level
+- Added an option to show the streak in the pause menu
+- Improved the animation when unlocking a new streak
+
+# 1.4.9 BETA
 - Added a new animation when unlocking a new day
 - some bugs were fixed
 

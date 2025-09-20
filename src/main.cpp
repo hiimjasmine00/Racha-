@@ -15,9 +15,10 @@
 #include <string_view>
 #include <vector>
 #include <Geode/fmod/fmod.hpp>
-
-
-
+#include <Geode/cocos/particle_nodes/CCParticleSystemQuad.h>
+#include <Geode/cocos/extensions/cocos-ext.h>
+#include <cmath> 
+#include <Geode/modify/PauseLayer.hpp>
 
 
 using namespace geode::prelude;
@@ -898,6 +899,89 @@ public:
     }
 };
 
+
+
+
+// ====================================================================
+// ================ CLASE PARA PARTÍCULAS MANUALES ====================
+// ====================================================================
+
+class ManualParticleEmitter : public cocos2d::CCNode {
+protected:
+    float m_spawnTimer = 0.0f;
+    float m_spawnRate = 0.005f;
+    bool m_emitting = true;
+
+public:
+    void update(float dt) override {
+        if (!m_emitting) {
+            if (this->getChildrenCount() == 0) {
+                this->unscheduleUpdate();
+                return;
+            }
+            return;
+        }
+
+        m_spawnTimer += dt;
+        if (m_spawnTimer >= m_spawnRate) {
+            m_spawnTimer = 0.0f;
+            spawnParticle();
+        }
+    }
+
+    void spawnParticle() {
+        auto particle = CCSprite::create("cuadro.png"_spr);
+        if (!particle) return;
+
+        particle->setPosition({ 0, 0 });
+        particle->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+
+        std::vector<ccColor3B> colors = { {255, 255, 255}, {255, 215, 0}, {255, 165, 0}, {255, 255, 150} };
+        particle->setColor(colors[rand() % colors.size()]);
+        particle->setOpacity(200);
+        particle->setScale(0.05f + (static_cast<float>(rand() % 10) / 100.0f));
+
+        float angle = static_cast<float>(rand() % 360);
+        float speed = 30.0f + (rand() % 20);
+        float lifespan = 0.3f + (static_cast<float>(rand() % 20) / 100.0f);
+
+        auto move = CCEaseExponentialOut::create(
+            CCMoveBy::create(lifespan, {
+                speed * cos(CC_DEGREES_TO_RADIANS(angle)),
+                speed * sin(CC_DEGREES_TO_RADIANS(angle))
+                })
+        );
+
+        auto fadeOut = CCFadeOut::create(lifespan);
+        auto scaleDown = CCScaleTo::create(lifespan, 0.0f);
+        auto rotate = CCRotateBy::create(lifespan, (rand() % 180) - 90);
+
+        particle->runAction(CCSequence::create(
+            CCSpawn::create(move, fadeOut, scaleDown, rotate, nullptr),
+            CCRemoveSelf::create(),
+            nullptr
+        ));
+
+        this->addChild(particle);
+    }
+
+    void stopEmitting() {
+        m_emitting = false;
+    }
+
+    static ManualParticleEmitter* create() {
+        auto ret = new ManualParticleEmitter();
+        if (ret && ret->init()) {
+            ret->autorelease();
+            ret->scheduleUpdate();
+            return ret;
+        }
+        CC_SAFE_DELETE(ret);
+        return nullptr;
+    }
+};
+
+// Esta función auxiliar no cambia
 CCAction* createShakeAction(float duration, float strength) {
     auto shake = CCArray::create();
     int steps = static_cast<int>(duration * 30);
@@ -910,9 +994,10 @@ CCAction* createShakeAction(float duration, float strength) {
     return CCSequence::create(shake);
 }
 
-// =========== POPUP PRINCIPAL (VERSIÓN CORREGIDA) ==============
+// =========== POPUP PRINCIPAL (VERSIÓN FINAL) ==============
 class InfoPopup : public Popup<> {
 protected:
+    // La función setup no cambia, incluye todo el contenido del popup
     bool setup() override {
         g_streakData.load();
         g_streakData.dailyUpdate();
@@ -921,7 +1006,6 @@ protected:
         auto winSize = m_mainLayer->getContentSize();
         float centerY = winSize.height / 2 + 25;
 
-        // Sprite de racha
         auto spriteName = g_streakData.getRachaSprite();
         auto rachaSprite = CCSprite::create(spriteName.c_str());
         rachaSprite->setScale(0.4f);
@@ -935,14 +1019,12 @@ protected:
         menuRacha->setPosition({ winSize.width / 2, centerY });
         m_mainLayer->addChild(menuRacha, 3);
 
-        // Animación de levitación
         auto floatUp = CCMoveBy::create(1.5f, { 0, 8 });
         auto floatDown = floatUp->reverse();
         auto seq = CCSequence::create(floatUp, floatDown, nullptr);
         auto repeat = CCRepeatForever::create(seq);
         rachaSprite->runAction(repeat);
 
-        // Texto de racha
         auto streakLabel = CCLabelBMFont::create(
             ("Daily streak: " + std::to_string(g_streakData.currentStreak)).c_str(),
             "goldFont.fnt"
@@ -951,7 +1033,6 @@ protected:
         streakLabel->setPosition({ winSize.width / 2, centerY - 60 });
         m_mainLayer->addChild(streakLabel);
 
-        // Barra de progreso
         float barWidth = 140.0f;
         float barHeight = 16.0f;
         int requiredStars = g_streakData.getRequiredStars();
@@ -978,13 +1059,11 @@ protected:
         outer->setOpacity(70);
         m_mainLayer->addChild(outer);
 
-        // Icono de estrella
         auto starIcon = CCSprite::createWithSpriteFrameName("GJ_starsIcon_001.png");
         starIcon->setScale(0.45f);
         starIcon->setPosition({ winSize.width / 2 - 25, centerY - 82 });
         m_mainLayer->addChild(starIcon, 5);
 
-        // Texto del contador de estrellas
         auto barText = CCLabelBMFont::create(
             (std::to_string(g_streakData.starsToday) + " / " + std::to_string(requiredStars)).c_str(),
             "bigFont.fnt"
@@ -993,14 +1072,12 @@ protected:
         barText->setPosition({ winSize.width / 2 + 15, centerY - 82 });
         m_mainLayer->addChild(barText, 5);
 
-        // INDICADOR DE RACHA
         std::string indicatorSpriteName = (g_streakData.starsToday >= requiredStars) ? g_streakData.getRachaSprite() : "racha0.png"_spr;
         auto rachaIndicator = CCSprite::create(indicatorSpriteName.c_str());
         rachaIndicator->setScale(0.14f);
         rachaIndicator->setPosition({ winSize.width / 2 + barWidth / 2 + 20, centerY - 82 });
         m_mainLayer->addChild(rachaIndicator, 5);
 
-        // BOTONES LATERALES Y DE INFO
         auto statsIcon = CCSprite::create("BtnStats.png"_spr);
         if (statsIcon) {
             statsIcon->setScale(0.7f);
@@ -1029,7 +1106,6 @@ protected:
         menu->addChild(infoBtn);
         m_mainLayer->addChild(menu, 10);
 
-        // Mostrar animación si hay nueva racha
         if (g_streakData.shouldShowAnimation()) {
             this->showStreakAnimation(g_streakData.currentStreak);
         }
@@ -1051,6 +1127,8 @@ protected:
         )->show();
     }
 
+	//animacion de racha
+
     void showStreakAnimation(int streakLevel) {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         auto animLayer = CCLayer::create();
@@ -1060,34 +1138,79 @@ protected:
 
         auto bg = CCLayerColor::create(ccc4(0, 0, 0, 0));
         bg->runAction(CCFadeTo::create(0.3f, 180));
-        animLayer->addChild(bg, 0); // Z-Order 0 (fondo)
+        animLayer->addChild(bg, 0);
+
+        auto shineBurst = CCSprite::createWithSpriteFrameName("shineBurst_001.png");
+        shineBurst->setPosition({ winSize.width / 2, winSize.height + 100.f });
+        shineBurst->setScale(0.1f);
+        shineBurst->setOpacity(0);
+        shineBurst->setTag(6);
+        shineBurst->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+        shineBurst->setColor({ 255, 240, 180 });
+        animLayer->addChild(shineBurst, 2);
 
         auto rachaSprite = CCSprite::create(g_streakData.getRachaSprite().c_str());
         rachaSprite->setPosition({ winSize.width / 2, winSize.height + 100.f });
         rachaSprite->setScale(0.1f);
         rachaSprite->setRotation(-360.f);
         rachaSprite->setTag(1);
-        animLayer->addChild(rachaSprite, 2); // FIX: Z-Order 2 (ícono principal)
+        animLayer->addChild(rachaSprite, 3);
+
+        auto aura = CCSprite::createWithSpriteFrameName("GJ_bigStar_001.png");
+        aura->setColor({ 255, 200, 100 });
+        aura->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+        aura->setScale(0.0f);
+        aura->setOpacity(0);
+        aura->setTag(4);
+        aura->setPosition(rachaSprite->getPosition());
+        animLayer->addChild(aura, 1);
 
         auto newStreakSprite = CCSprite::create("NewStreak.png"_spr);
         newStreakSprite->setPosition({ winSize.width / 2, winSize.height / 2 + 80.f });
         newStreakSprite->setScale(0.f);
         newStreakSprite->setTag(2);
-        animLayer->addChild(newStreakSprite, 4); // FIX: Z-Order 4 (texto encima del ícono)
+        animLayer->addChild(newStreakSprite, 4);
 
         auto daysLabel = CCLabelBMFont::create(CCString::createWithFormat("Day %d", streakLevel)->getCString(), "goldFont.fnt");
         daysLabel->setPosition({ winSize.width / 2, winSize.height / 2 - 80.f });
         daysLabel->setScale(0.5f);
         daysLabel->setOpacity(0);
         daysLabel->setTag(3);
-        animLayer->addChild(daysLabel, 5); // FIX: Z-Order 5 (texto más importante, siempre visible)
+        animLayer->addChild(daysLabel, 5);
+
+        auto trail = ManualParticleEmitter::create();
+        trail->setPosition(rachaSprite->getPosition());
+        trail->setTag(5);
+        animLayer->addChild(trail, 1);
 
         float entranceDuration = 0.8f;
         auto entranceMove = CCEaseElasticOut::create(CCMoveTo::create(entranceDuration, { winSize.width / 2, winSize.height / 2 }), 0.5f);
         auto entranceScale = CCEaseBackOut::create(CCScaleTo::create(entranceDuration, 1.2f));
         auto entranceRotate = CCEaseExponentialOut::create(CCRotateTo::create(entranceDuration, 0.f));
 
-        // FIX: Nuevo sonido de entrada
+        auto auraMove = CCMoveTo::create(entranceDuration, { winSize.width / 2, winSize.height / 2 });
+        auto trailMove = CCMoveTo::create(entranceDuration, { winSize.width / 2, winSize.height / 2 });
+        auto shineMove = CCMoveTo::create(entranceDuration, { winSize.width / 2, winSize.height / 2 });
+
+        aura->runAction(auraMove);
+
+        trail->runAction(CCSequence::create(
+            trailMove,
+            CCCallFunc::create(trail, callfunc_selector(ManualParticleEmitter::stopEmitting)),
+            nullptr
+        ));
+
+        shineBurst->runAction(CCSequence::create(
+            CCSpawn::create(
+                shineMove,
+                CCFadeIn::create(entranceDuration * 0.5f),
+                CCScaleTo::create(entranceDuration, 6.2f),
+                nullptr
+            ),
+            CCCallFunc::create(this, callfunc_selector(InfoPopup::startShineRotation)),
+            nullptr
+        ));
+
         FMODAudioEngine::sharedEngine()->playEffect("achievement.mp3"_spr, 1.0f, 1.0f, 0.6f);
 
         rachaSprite->runAction(CCSequence::create(
@@ -1097,12 +1220,40 @@ protected:
         ));
     }
 
+    void startShineRotation() {
+        auto animLayer = this->getChildByTag(111);
+        if (!animLayer) return;
+
+        if (auto shineBurst = static_cast<CCSprite*>(animLayer->getChildByTag(6))) {
+            auto rotate = CCRotateBy::create(8.0f, 360);
+            auto repeatRotate = CCRepeatForever::create(rotate);
+            shineBurst->runAction(repeatRotate);
+            shineBurst->setOpacity(150);
+        }
+    }
+
     void onAnimationImpact() {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         auto animLayer = this->getChildByTag(111);
         if (!animLayer) return;
 
         animLayer->runAction(createShakeAction(0.2f, 5.0f));
+
+        auto shockwave = CCSprite::createWithSpriteFrameName("d_practiceIcon_001.png");
+        shockwave->setPosition({ winSize.width / 2, winSize.height / 2 });
+        shockwave->setColor({ 255, 225, 150 });
+        shockwave->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+        shockwave->setScale(0.2f);
+        shockwave->runAction(CCSequence::create(
+            CCSpawn::create(
+                CCScaleTo::create(0.5f, 5.0f),
+                CCFadeOut::create(0.5f),
+                nullptr
+            ),
+            CCRemoveSelf::create(),
+            nullptr
+        ));
+        animLayer->addChild(shockwave, 1);
 
         auto flash = CCSprite::createWithSpriteFrameName("GJ_bigStar_001.png");
         flash->setPosition({ winSize.width / 2, winSize.height / 2 });
@@ -1112,12 +1263,28 @@ protected:
         flash->runAction(CCSequence::create(CCFadeIn::create(0.1f), CCFadeOut::create(0.3f), CCRemoveSelf::create(), nullptr));
         animLayer->addChild(flash, 3);
 
-        // Usamos FMODAudioEngine con la ruta completa para mayor seguridad
         FMODAudioEngine::sharedEngine()->playEffect("mcsfx.mp3"_spr);
 
         if (auto rachaSprite = static_cast<CCSprite*>(animLayer->getChildByTag(1))) {
             rachaSprite->runAction(CCEaseBackOut::create(CCScaleTo::create(0.3f, 1.0f)));
+
+            auto breatheIn = CCScaleTo::create(1.5f, 1.05f);
+            auto breatheOut = CCScaleTo::create(1.5f, 1.0f);
+            rachaSprite->runAction(CCRepeatForever::create(CCSequence::create(breatheIn, breatheOut, nullptr)));
         }
+
+        if (auto aura = static_cast<CCSprite*>(animLayer->getChildByTag(4))) {
+            aura->runAction(CCSequence::create(
+                CCSpawn::create(
+                    CCFadeTo::create(0.4f, 150),
+                    CCScaleTo::create(0.4f, 1.5f),
+                    nullptr
+                ),
+                CCFadeOut::create(0.3f),
+                nullptr
+            ));
+        }
+
         if (auto newStreakSprite = static_cast<CCSprite*>(animLayer->getChildByTag(2))) {
             newStreakSprite->runAction(CCSequence::create(CCDelayTime::create(0.2f), CCEaseBackOut::create(CCScaleTo::create(0.4f, 1.0f)), nullptr));
         }
@@ -1125,64 +1292,58 @@ protected:
             daysLabel->runAction(CCSequence::create(CCDelayTime::create(0.4f), CCSpawn::create(CCFadeIn::create(0.5f), CCEaseBackOut::create(CCScaleTo::create(0.5f, 1.0f)), nullptr), nullptr));
         }
 
-        // --- EFECTO DE FUEGOS ARTIFICIALES ---
-        // Se dispara varias veces después del impacto inicial
         animLayer->runAction(CCSequence::create(
-            CCDelayTime::create(1.0f), // Pequeño retraso después del impacto principal
-            CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
-            CCDelayTime::create(0.5f),
-            CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
-            CCDelayTime::create(0.5f),
-            CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
             CCDelayTime::create(1.0f),
             CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
             CCDelayTime::create(0.5f),
             CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
-            CCDelayTime::create(1.5f),
-            // Después de los fuegos artificiales, inicia la salida
+            CCDelayTime::create(0.5f),
+            CCCallFunc::create(this, callfunc_selector(InfoPopup::spawnStarBurst)),
+			// duracion de la animacion 6.5 segundos aprox
+            CCDelayTime::create(2.6f),
             CCCallFunc::create(this, callfunc_selector(InfoPopup::onAnimationExit)),
             nullptr
         ));
     }
 
-    // NUEVA FUNCIÓN para generar una ráfaga de estrellas tipo "fuegos artificiales"
     void spawnStarBurst() {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         auto animLayer = static_cast<CCLayer*>(this->getChildByTag(111));
         if (!animLayer) return;
 
-        int numStars = 10 + (rand() % 5);
-        float burstStrength = 60.f + (rand() % 40);
-        float burstDuration = 0.8f + (rand() % 4 / 10.f);
+        std::vector<ccColor3B> colors = {
+            {255, 255, 255}, {255, 215, 0}, {255, 165, 0}, {255, 255, 150}
+        };
+
+        int numStars = 25 + (rand() % 10);
+        float burstStrength = 80.f + (rand() % 50);
+        float burstDuration = 1.0f + (rand() % 5 / 10.f);
 
         for (int i = 0; i < numStars; ++i) {
-            auto star = CCSprite::createWithSpriteFrameName("GJ_starsIcon_001.png");
-            if (rand() % 3 == 0) {
-                star = CCSprite::createWithSpriteFrameName("GJ_bigStar_001.png");
-                star->setColor({ 255, 255, 100 });
-            }
+            auto particle = CCSprite::create("cuadro.png"_spr);
+            particle->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+            particle->setColor(colors[rand() % colors.size()]);
 
-            star->setPosition({ winSize.width / 2, winSize.height / 2 });
-            star->setScale(0.5f + (rand() % 7 / 10.f));
-            star->setRotation(rand() % 360);
-            star->setOpacity(255);
+            particle->setPosition({ winSize.width / 2, winSize.height / 2 });
+            particle->setScale(0.1f + (rand() % 3 / 10.f));
+            particle->setRotation(rand() % 90);
 
-            float angle = (static_cast<float>(i) / numStars) * 360.f + (rand() % 40 - 20);
+            float angle = (static_cast<float>(i) / numStars) * 360.f + (rand() % 20 - 10);
             float distance = burstStrength * (0.8f + (rand() % 5 / 10.f));
             CCPoint dest = ccp(winSize.width / 2 + distance * cos(CC_DEGREES_TO_RADIANS(angle)), winSize.height / 2 + distance * sin(CC_DEGREES_TO_RADIANS(angle)));
 
-            star->runAction(CCSequence::create(
+            particle->runAction(CCSequence::create(
                 CCSpawn::create(
-                    CCEaseOut::create(CCMoveTo::create(burstDuration, dest), 2.0f),
-                    CCFadeOut::create(burstDuration * 1.2f),
+                    CCEaseExponentialOut::create(CCMoveTo::create(burstDuration, dest)),
+                    CCFadeOut::create(burstDuration),
                     CCScaleTo::create(burstDuration, 0.0f),
-                    CCRotateBy::create(burstDuration, (rand() % 360) * (rand() % 2 == 0 ? 1 : -1)),
+                    CCRotateBy::create(burstDuration, (rand() % 180) * (rand() % 2 == 0 ? 1 : -1)),
                     nullptr
                 ),
                 CCRemoveSelf::create(),
                 nullptr
             ));
-            animLayer->addChild(star, 1);
+            animLayer->addChild(particle, 1);
         }
     }
 
@@ -1190,21 +1351,35 @@ protected:
         auto animLayer = this->getChildByTag(111);
         if (!animLayer) return;
 
-        
-        if (animLayer->getChildrenCount() > 0) {
-            if (auto bg = static_cast<CCLayerColor*>(animLayer->getChildren()->objectAtIndex(0))) {
-                bg->runAction(CCFadeOut::create(1.0f));
-            }
+        if (auto bg = animLayer->getChildByTag(0)) {
+            bg->runAction(CCFadeOut::create(1.0f));
         }
 
         if (auto rachaSprite = static_cast<CCSprite*>(animLayer->getChildByTag(1))) {
-            rachaSprite->runAction(CCSpawn::create(CCScaleTo::create(0.8f, 0.0f), CCFadeOut::create(0.8f), nullptr));
+            rachaSprite->stopAllActions();
+          
+            rachaSprite->runAction(CCSpawn::create(
+                CCScaleTo::create(0.8f, 0.0f),
+                CCFadeOut::create(0.8f),
+                nullptr)
+            );
         }
+
         if (auto newStreakSprite = static_cast<CCSprite*>(animLayer->getChildByTag(2))) {
-            newStreakSprite->runAction(CCSpawn::create(CCScaleTo::create(0.8f, 0.0f), CCFadeOut::create(0.8f), nullptr));
+            newStreakSprite->runAction(CCFadeOut::create(0.5f));
         }
         if (auto daysLabel = static_cast<CCLabelBMFont*>(animLayer->getChildByTag(3))) {
-            daysLabel->runAction(CCSpawn::create(CCScaleTo::create(0.8f, 0.0f), CCFadeOut::create(0.8f), nullptr));
+            daysLabel->runAction(CCFadeOut::create(0.5f));
+        }
+        if (auto aura = static_cast<CCSprite*>(animLayer->getChildByTag(4))) {
+            aura->runAction(CCFadeOut::create(0.5f));
+        }
+        if (auto trail = static_cast<ManualParticleEmitter*>(animLayer->getChildByTag(5))) {
+            trail->stopEmitting();
+        }
+        if (auto shineBurst = static_cast<CCSprite*>(animLayer->getChildByTag(6))) {
+            shineBurst->stopAllActions();
+            shineBurst->runAction(CCFadeOut::create(0.5f));
         }
 
         animLayer->runAction(CCSequence::create(
@@ -1213,7 +1388,6 @@ protected:
             nullptr
         ));
     }
-
 
 public:
     static InfoPopup* create() {
@@ -1226,6 +1400,7 @@ public:
         return nullptr;
     }
 };
+
 
 
 // ============ BOTÓN EN MENÚ PRINCIPAL ==================
@@ -1416,6 +1591,278 @@ class $modify(MyCommentCell, CommentCell) {
                     }
                 }
             }
+        }
+    }
+};
+
+
+
+
+
+class StreakProgressBar : public cocos2d::CCLayerColor {
+protected:
+    int m_starsGained;
+    int m_starsBefore;
+    int m_starsRequired;
+    cocos2d::CCLabelBMFont* m_starLabel;
+    cocos2d::CCNode* m_barContainer;
+    cocos2d::CCLayer* m_barFg;
+
+    float m_barWidth;
+    float m_barHeight;
+
+   
+    float m_currentPercent;
+    float m_targetPercent;
+    float m_currentStarsDisplay;
+    float m_targetStarsDisplay;
+
+    bool init(int starsGained, int starsBefore, int starsRequired) {
+        if (!CCLayerColor::initWithColor({ 0, 0, 0, 0 })) return false;
+
+        m_starsGained = starsGained;
+        m_starsBefore = starsBefore;
+        m_starsRequired = starsRequired;
+
+      
+        m_currentPercent = std::min(1.f, static_cast<float>(m_starsBefore) / m_starsRequired);
+        m_targetPercent = m_currentPercent;
+        m_currentStarsDisplay = static_cast<float>(m_starsBefore);
+        m_targetStarsDisplay = m_currentStarsDisplay;
+
+        auto visibleSize = cocos2d::CCDirector::sharedDirector()->getVisibleSize();
+        auto origin = cocos2d::CCDirector::sharedDirector()->getVisibleOrigin();
+
+        m_barWidth = 160.0f;
+        m_barHeight = 15.0f;
+
+        m_barContainer = CCNode::create();
+        m_barContainer->setPosition(origin + CCPoint(40, visibleSize.height - 280));
+        this->addChild(m_barContainer);
+
+        auto streakIcon = CCSprite::create(g_streakData.getRachaSprite().c_str());
+        streakIcon->setScale(0.2f);
+        streakIcon->setRotation(-15.f);
+        streakIcon->setPosition({ -5, (m_barHeight + 6) / 2 });
+        m_barContainer->addChild(streakIcon, 10);
+
+        auto barBg = cocos2d::extension::CCScale9Sprite::create("GJ_button_01.png");
+        barBg->setContentSize({ m_barWidth + 6, m_barHeight + 6 });
+        barBg->setColor({ 0, 0, 0 });
+        barBg->setOpacity(120);
+        barBg->setAnchorPoint({ 0, 0 });
+        barBg->setPosition({ 0, 0 });
+        m_barContainer->addChild(barBg);
+
+        auto stencil = cocos2d::extension::CCScale9Sprite::create("GJ_button_01.png");
+        stencil->setContentSize({ m_barWidth, m_barHeight });
+        stencil->setAnchorPoint({ 0, 0 });
+        stencil->setPosition({ 3, 3 });
+
+        auto clipper = CCClippingNode::create();
+        clipper->setStencil(stencil);
+        barBg->addChild(clipper);
+
+        m_barFg = CCLayerGradient::create({ 255, 225, 60, 255 }, { 255, 165, 0, 255 });
+        m_barFg->setContentSize({ m_barWidth * m_currentPercent, m_barHeight });
+        m_barFg->setAnchorPoint({ 0, 0 });
+        m_barFg->setPosition({ 0, 0 });
+        clipper->addChild(m_barFg);
+
+        m_starLabel = CCLabelBMFont::create(
+            CCString::createWithFormat("%d/%d", m_starsBefore, m_starsRequired)->getCString(), "bigFont.fnt"
+        );
+        m_starLabel->setAnchorPoint({ 1, 0.5f });
+        m_starLabel->setScale(0.4f);
+        m_starLabel->setPosition({ m_barWidth - 5, m_barHeight / 2 });
+        m_barFg->addChild(m_starLabel, 5);
+
+        this->runAnimations();
+        this->scheduleUpdate();
+
+        return true;
+    }
+
+    void update(float dt) override {
+        float smoothingFactor = 8.0f;
+        m_currentPercent = m_currentPercent + (m_targetPercent - m_currentPercent) * dt * smoothingFactor;
+        m_currentStarsDisplay = m_currentStarsDisplay + (m_targetStarsDisplay - m_currentStarsDisplay) * dt * smoothingFactor;
+
+        m_barFg->setContentSize({ m_barWidth * m_currentPercent, m_barHeight });
+        m_starLabel->setString(CCString::createWithFormat("%d/%d", static_cast<int>(round(m_currentStarsDisplay)), m_starsRequired)->getCString());
+        m_starLabel->setPosition({ m_barFg->getContentSize().width - 5, m_barHeight / 2 });
+    }
+
+    void runAnimations() {
+        CCPoint onScreenPos = m_barContainer->getPosition();
+        CCPoint offScreenPos = m_barContainer->getPosition() + CCPoint(-250, 0);
+
+        m_barContainer->setPosition(offScreenPos);
+        m_barContainer->runAction(CCSequence::create(
+            CCEaseSineOut::create(CCMoveTo::create(0.4f, onScreenPos)),
+            CCCallFunc::create(this, callfunc_selector(StreakProgressBar::spawnStarParticles)),
+            CCDelayTime::create(2.5f + m_starsGained * 0.15f),
+            CCEaseSineIn::create(CCMoveTo::create(0.4f, offScreenPos)),
+            CCCallFunc::create(this, callfunc_selector(StreakProgressBar::stopUpdateLoop)),
+            CCRemoveSelf::create(),
+            nullptr
+        ));
+    }
+
+    void stopUpdateLoop() {
+        this->unscheduleUpdate();
+    }
+
+    void spawnStarParticles() {
+        auto winSize = CCDirector::sharedDirector()->getWinSize();
+        CCPoint center = winSize / 2;
+        float delayPerStar = 0.1f;
+
+        for (int i = 0; i < m_starsGained; ++i) {
+            auto starParticle = CCSprite::createWithSpriteFrameName("GJ_starsIcon_001.png");
+            starParticle->setScale(0.6f);
+            starParticle->setPosition(center);
+            this->addChild(starParticle, 10);
+
+            CCPoint endPos = m_barContainer->getPosition() + CCPoint(3 + m_barWidth * (std::min(1.f, (float)(m_starsBefore + i + 1) / m_starsRequired)), 3 + m_barHeight / 2);
+
+            ccBezierConfig bezier;
+            bezier.endPosition = this->convertToNodeSpace(endPos);
+            float explosionRadius = 150.f;
+            float randomAngle = (float)(rand() % 360);
+            bezier.controlPoint_1 = this->convertToNodeSpace(center + CCPoint((explosionRadius + (rand() % 50)) * cos(CC_DEGREES_TO_RADIANS(randomAngle)), (explosionRadius + (rand() % 50)) * sin(CC_DEGREES_TO_RADIANS(randomAngle))));
+            bezier.controlPoint_2 = this->convertToNodeSpace(endPos) + CCPoint(0, 100);
+
+            auto bezierAction = CCBezierTo::create(1.0f, bezier);
+            auto rotateAction = CCRotateBy::create(1.0f, 360 + (rand() % 180));
+            auto scaleAction = CCScaleTo::create(1.0f, 0.4f);
+
+            starParticle->runAction(CCSequence::create(
+                CCDelayTime::create(i * delayPerStar),
+                CCSpawn::create(CCEaseSineOut::create(bezierAction), rotateAction, scaleAction, nullptr),
+                CCCallFuncND::create(this, callfuncND_selector(StreakProgressBar::onStarHitBar), (void*)(size_t)(i + 1)),
+                CCRemoveSelf::create(),
+                nullptr
+            ));
+        }
+    }
+
+    void onStarHitBar(CCNode* sender, void* data) {
+        int starIndex = (int)(size_t)(data);
+        int currentTotalStars = m_starsBefore + starIndex;
+
+        m_targetPercent = std::min(1.f, static_cast<float>(currentTotalStars) / m_starsRequired);
+        m_targetStarsDisplay = static_cast<float>(currentTotalStars);
+
+        auto popUp = CCEaseSineOut::create(CCScaleTo::create(0.1f, 1.0f, 1.2f));
+        auto popDown = CCEaseSineIn::create(CCScaleTo::create(0.1f, 1.0f, 1.0f));
+        m_barFg->runAction(CCSequence::create(popUp, popDown, nullptr));
+
+        auto flash = CCSprite::createWithSpriteFrameName("GJ_bigStar_001.png");
+        flash->setPosition(m_barContainer->convertToNodeSpace(sender->getPosition()));
+        flash->setScale(0.1f);
+        flash->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
+        flash->runAction(CCSequence::create(CCSpawn::create(CCScaleTo::create(0.3f, 1.0f), CCFadeOut::create(0.3f), nullptr), CCRemoveSelf::create(), nullptr));
+        m_barContainer->addChild(flash, 20);
+
+        FMODAudioEngine::sharedEngine()->playEffect("coin.mp3"_spr);
+    }
+
+public:
+    static StreakProgressBar* create(int starsGained, int starsBefore, int starsRequired) {
+        auto ret = new StreakProgressBar();
+        if (ret && ret->init(starsGained, starsBefore, starsRequired)) {
+            ret->autorelease();
+            return ret;
+        }
+        CC_SAFE_DELETE(ret);
+        return nullptr;
+    }
+};
+
+
+class $modify(MyPlayLayer, PlayLayer) {
+    void levelComplete() {
+        PlayLayer::levelComplete();
+        int starsGained = this->m_level->m_stars;
+
+        if (starsGained > 0) {
+            g_streakData.load();
+
+            int starsNow = g_streakData.starsToday;
+            int starsBefore = starsNow - starsGained;
+
+            int starsRequired = g_streakData.getRequiredStars();
+
+            auto progressBar = StreakProgressBar::create(starsGained, starsBefore, starsRequired);
+            CCDirector::sharedDirector()->getRunningScene()->addChild(progressBar, 100);
+        }
+    }
+};
+
+
+
+// racha en el menu de pausa
+
+class $modify(MyPauseLayer, PauseLayer) {
+    void customSetup() {
+        PauseLayer::customSetup();
+
+        // Leemos si la opción está activada
+        if (Mod::get()->getSettingValue<bool>("show-in-pause")) {
+            auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
+
+            // Leemos las posiciones X e Y desde los ajustes
+            float posX = Mod::get()->getSettingValue<double>("pause-pos-x");
+            float posY = Mod::get()->getSettingValue<double>("pause-pos-y");
+
+            g_streakData.load();
+            int starsToday = g_streakData.starsToday;
+            int requiredStars = g_streakData.getRequiredStars();
+            int streakDays = g_streakData.currentStreak;
+
+            auto streakNode = CCNode::create();
+
+            // 1. Icono de racha
+            auto streakIcon = CCSprite::create(g_streakData.getRachaSprite().c_str());
+            streakIcon->setScale(0.2f);
+            streakNode->addChild(streakIcon);
+
+            // 2. Texto con el número de días, debajo del icono
+            auto daysLabel = CCLabelBMFont::create(
+                CCString::createWithFormat("Day %d", streakDays)->getCString(),
+                "goldFont.fnt"
+            );
+            daysLabel->setScale(0.35f);
+            daysLabel->setPosition({ 0, -22 });
+            streakNode->addChild(daysLabel);
+
+            // 3. Contenedor para el contador de estrellas
+            auto starCounterNode = CCNode::create();
+            starCounterNode->setPosition({ 0, -37 }); // Debajo del texto de días
+            streakNode->addChild(starCounterNode);
+
+            // 3a. Texto del contador
+            auto starLabel = CCLabelBMFont::create(
+                CCString::createWithFormat("%d / %d", starsToday, requiredStars)->getCString(),
+                "bigFont.fnt"
+            );
+            starLabel->setScale(0.35f);
+            starCounterNode->addChild(starLabel);
+
+            // 3b. Icono de estrella
+            auto starIcon = CCSprite::createWithSpriteFrameName("GJ_starsIcon_001.png");
+            starIcon->setScale(0.5f);
+            starCounterNode->addChild(starIcon);
+
+            // Alineamos el contador y el icono para que estén centrados
+            starCounterNode->setContentSize({ starLabel->getScaledContentSize().width + starIcon->getScaledContentSize().width + 5, starLabel->getScaledContentSize().height });
+            starLabel->setPosition({ -starIcon->getScaledContentSize().width / 2, 0 });
+            starIcon->setPosition({ starLabel->getScaledContentSize().width / 2 + 5, 0 });
+
+            // Posicionamos el nodo completo usando los valores de los ajustes
+            streakNode->setPosition({ winSize.width * posX, winSize.height * posY });
+            this->addChild(streakNode);
         }
     }
 };
