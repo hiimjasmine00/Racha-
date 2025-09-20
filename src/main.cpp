@@ -1596,9 +1596,6 @@ class $modify(MyCommentCell, CommentCell) {
 };
 
 
-
-
-
 class StreakProgressBar : public cocos2d::CCLayerColor {
 protected:
     int m_starsGained;
@@ -1627,14 +1624,14 @@ protected:
         m_currentStarsDisplay = static_cast<float>(m_starsBefore);
         m_targetStarsDisplay = m_currentStarsDisplay;
 
-        auto visibleSize = cocos2d::CCDirector::sharedDirector()->getVisibleSize();
-        auto origin = cocos2d::CCDirector::sharedDirector()->getVisibleOrigin();
+        // SOLUCIÓN: Usar getWinSize() que está disponible en todas las plataformas
+        auto winSize = cocos2d::CCDirector::sharedDirector()->getWinSize();
 
         m_barWidth = 160.0f;
         m_barHeight = 15.0f;
 
         m_barContainer = CCNode::create();
-        m_barContainer->setPosition(origin + CCPoint(80, visibleSize.height - 180));
+        m_barContainer->setPosition(80, winSize.height - 180);
         this->addChild(m_barContainer);
 
         auto streakIcon = CCSprite::create(g_streakData.getRachaSprite().c_str());
@@ -1671,7 +1668,7 @@ protected:
         );
         m_starLabel->setAnchorPoint({ 1, 0.5f });
         m_starLabel->setScale(0.4f);
-        m_starLabel->setPosition({ m_barWidth - 5, m_barHeight / 2 });
+        m_starLabel->setPosition({ m_barFg->getContentSize().width - 5, m_barHeight / 2 });
         m_barFg->addChild(m_starLabel, 5);
 
         this->runAnimations();
@@ -1710,6 +1707,8 @@ protected:
         this->unscheduleUpdate();
     }
 
+    std::map<CCNode*, int> m_particleIndices;
+
     void spawnStarParticles() {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
         CCPoint center = winSize / 2;
@@ -1721,31 +1720,59 @@ protected:
             starParticle->setPosition(center);
             this->addChild(starParticle, 10);
 
+            // Guardar el índice de la partícula
+            m_particleIndices[starParticle] = i + 1;
+
             CCPoint endPos = m_barContainer->getPosition() + CCPoint(3 + m_barWidth * (std::min(1.f, (float)(m_starsBefore + i + 1) / m_starsRequired)), 3 + m_barHeight / 2);
 
-            ccBezierConfig bezier;
-            bezier.endPosition = this->convertToNodeSpace(endPos);
-            float explosionRadius = 150.f;
-            float randomAngle = (float)(rand() % 360);
-            bezier.controlPoint_1 = this->convertToNodeSpace(center + CCPoint((explosionRadius + (rand() % 50)) * cos(CC_DEGREES_TO_RADIANS(randomAngle)), (explosionRadius + (rand() % 50)) * sin(CC_DEGREES_TO_RADIANS(randomAngle))));
-            bezier.controlPoint_2 = this->convertToNodeSpace(endPos) + CCPoint(0, 100);
+            // Crear una trayectoria parabólica manualmente
+            std::vector<CCPoint> points;
+            int segments = 10;
+            CCPoint controlPoint = center + CCPoint((endPos.x - center.x) * 0.5f, (endPos.y - center.y) + 100);
 
-            auto bezierAction = CCBezierTo::create(1.0f, bezier);
+            for (int j = 0; j <= segments; j++) {
+                float t = (float)j / segments;
+                CCPoint point = center * (1 - t) * (1 - t) + controlPoint * 2 * (1 - t) * t + endPos * t * t;
+                points.push_back(point);
+            }
+
+            // Crear una secuencia de movimientos
+            CCArray* actions = CCArray::create();
+            for (size_t j = 1; j < points.size(); j++) {
+                float duration = 1.0f / segments;
+                actions->addObject(CCMoveTo::create(duration, points[j]));
+            }
+
             auto rotateAction = CCRotateBy::create(1.0f, 360 + (rand() % 180));
             auto scaleAction = CCScaleTo::create(1.0f, 0.4f);
 
+            // SOLUCIÓN PARA WINDOWS: Usar CCCallFuncN y una función miembro
             starParticle->runAction(CCSequence::create(
                 CCDelayTime::create(i * delayPerStar),
-                CCSpawn::create(CCEaseSineOut::create(bezierAction), rotateAction, scaleAction, nullptr),
-                CCCallFuncND::create(this, callfuncND_selector(StreakProgressBar::onStarHitBar), (void*)(size_t)(i + 1)),
+                CCSpawn::create(
+                    CCSequence::create(actions),
+                    rotateAction,
+                    scaleAction,
+                    nullptr
+                ),
+                CCCallFuncN::create(this, callfuncN_selector(StreakProgressBar::onStarReachedBar)),
                 CCRemoveSelf::create(),
                 nullptr
             ));
         }
     }
 
-    void onStarHitBar(CCNode* sender, void* data) {
-        int starIndex = (int)(size_t)(data);
+    // Función miembro para manejar el callback
+    void onStarReachedBar(CCNode* starParticle) {
+        auto it = m_particleIndices.find(starParticle);
+        if (it != m_particleIndices.end()) {
+            int starIndex = it->second;
+            this->onStarHitBar(starIndex);
+            m_particleIndices.erase(it);
+        }
+    }
+
+    void onStarHitBar(int starIndex) {
         int currentTotalStars = m_starsBefore + starIndex;
 
         m_targetPercent = std::min(1.f, static_cast<float>(currentTotalStars) / m_starsRequired);
@@ -1756,13 +1783,23 @@ protected:
         m_barFg->runAction(CCSequence::create(popUp, popDown, nullptr));
 
         auto flash = CCSprite::createWithSpriteFrameName("GJ_bigStar_001.png");
-        flash->setPosition(m_barContainer->convertToNodeSpace(sender->getPosition()));
+        flash->setPosition(m_barContainer->getPosition() + CCPoint(3 + m_barWidth * m_currentPercent, 3 + m_barHeight / 2));
         flash->setScale(0.1f);
         flash->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
-        flash->runAction(CCSequence::create(CCSpawn::create(CCScaleTo::create(0.3f, 1.0f), CCFadeOut::create(0.3f), nullptr), CCRemoveSelf::create(), nullptr));
+        flash->runAction(CCSequence::create(
+            CCSpawn::create(CCScaleTo::create(0.3f, 1.0f), CCFadeOut::create(0.3f), nullptr),
+            CCRemoveSelf::create(),
+            nullptr
+        ));
         m_barContainer->addChild(flash, 20);
 
         FMODAudioEngine::sharedEngine()->playEffect("collect_1.mp3"_spr);
+    }
+
+    // Asegurarse de limpiar el mapa cuando se destruya
+    virtual void onExit() override {
+        m_particleIndices.clear();
+        CCLayerColor::onExit();
     }
 
 public:
@@ -1777,6 +1814,7 @@ public:
     }
 };
 
+
 class $modify(MyPlayLayer, PlayLayer) {
     void levelComplete() {
         PlayLayer::levelComplete();
@@ -1785,10 +1823,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         if (starsGained > 0) {
             g_streakData.load();
 
-            // EL TRUCO ESTÁ AQUÍ:
-            // Leemos el total de estrellas actual (que ya fue incrementado por tu GameStatsManager)
             int starsNow = g_streakData.starsToday;
-            // Y le restamos las estrellas que acabamos de ganar para saber cuántas había ANTES
             int starsBefore = starsNow - starsGained;
 
             int starsRequired = g_streakData.getRequiredStars();
