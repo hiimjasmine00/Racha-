@@ -1,20 +1,20 @@
-# Streak!
-How long can you keep the streak alive? This mod introduces a daily challenge system to test your dedication.
+## <cy>Streak!</c>
+How long can you maintain your streak? This mod introduces a daily challenge system to test your dedication.
 
-# Features:
- Daily Star Streak
-Collect a target number of stars every single day to build your streak.
+<cg>Features:</c>
+<cp>Daily Scorestreak</c>
+Complete rated levels each day to earn streak points and increase your streak.
 
-# Progress
-Improve your progress by keeping your streak going
+<cb>Unlockable Badges</c>
+Earn and equip unique badges on your profile to show your consistency to other players online!
 
-# Unlockable Badges
-Earn and equip unique badges on your profile to showcase your legendary consistency.
+<cr>Don't Break the Chain</c>
+If you miss a single day, your streak resets. Every day counts.
 
-# Don't Break the Chain
-Miss a single day, and your streak resets to zero. Every day matters.
+<co>Roulette Wheel</c>
+And you can even try your luck at the roulette wheel to unlock new badges!
 
-Challenge yourself daily and prove your dedication!
-Compete with your friends to see who has the best number of streaks :)
+Challenge yourself daily and show your dedication!
+Compete with your friends to see who has the best streak :)
 
-A mod by Jotabelike
+A mod by <cl>Jotabelike</c>

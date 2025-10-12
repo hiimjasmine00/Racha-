@@ -8,15 +8,15 @@
 	},
 	"id": "jotabelike.gd_racha",
 	"name": "Streak!",
-	"version": "v1.7.0-beta",
+	"version": "v1.7.5-beta",
 	"developer": "XJotabelikeX",
 	"description": "Personal Streak! Prove you're the best and start a streak!",
 	"links": {
 		"community": "https://discord.gg/vEPWBuFEn5"
 	},
 	"tags": [
-		"offline",
-		"enhancement"
+		"offline"
+		
 	],
 	"dependencies": [
 		
@@ -42,13 +42,6 @@
 
 		"sprites": [
 			"resources/*.png"
-
-
-
-
-
-
-
 
 		]
 
