@@ -8,10 +8,10 @@
 #include <Geode/cocos/particle_nodes/CCParticleSystemQuad.h>
 #include <Geode/cocos/extensions/cocos-ext.h>
 
-// Declaración anticipada
+
 class ShopPopup;
 
-// ================== CLASES DE POPUPS Y UI ==================
+
 
 enum class RewardType { Badge, SuperStar, StarTicket };
 
@@ -115,15 +115,18 @@ protected:
         m_pageContainer = CCLayer::create();
         m_pageContainer->setPosition(popupCenter - listSize / 2);
         m_mainLayer->addChild(m_pageContainer);
-        // CÓDIGO CORREGIDO
+      
         auto leftSpr = CCSprite::createWithSpriteFrameName("GJ_arrow_03_001.png");
         m_leftArrow = CCMenuItemSpriteExtra::create(leftSpr, this, menu_selector(HistoryPopup::onPrevPage));
         auto rightSpr = CCSprite::createWithSpriteFrameName("GJ_arrow_03_001.png");
         rightSpr->setFlipX(true);
         m_rightArrow = CCMenuItemSpriteExtra::create(rightSpr, this, menu_selector(HistoryPopup::onNextPage));
 
-        // La línea corregida está aquí: se añade , nullptr al final
-        auto navMenu = CCMenu::create(m_leftArrow, m_rightArrow, nullptr);
+        
+        CCArray* navItems = CCArray::create();
+        navItems->addObject(m_leftArrow);
+        navItems->addObject(m_rightArrow);
+        auto navMenu = CCMenu::createWithArray(navItems);
 
         navMenu->alignItemsHorizontallyWithPadding(listSize.width + 25.f);
         navMenu->setPosition(popupCenter);
@@ -378,17 +381,17 @@ public:
     ccColor3B m_targetColor;
     std::function<void()> m_onCompletionCallback;
 
-    virtual void onEnter() {
+    void onEnter() override {
         CCLayer::onEnter();
         CCDirector::sharedDirector()->getTouchDispatcher()->addTargetedDelegate(this, -513, true);
     }
 
-    virtual void onExit() {
+    void onExit() override {
         CCDirector::sharedDirector()->getTouchDispatcher()->removeDelegate(this);
         CCLayer::onExit();
     }
 
-    virtual bool ccTouchBegan(CCTouch* touch, CCEvent* event) {
+    bool ccTouchBegan(CCTouch* touch, CCEvent* event) override {
         auto location = this->convertTouchToNodeSpace(touch);
         if (m_okMenu) {
             CCRect menuBox = m_okMenu->boundingBox();
@@ -405,9 +408,9 @@ public:
         return true;
     }
 
-    virtual void ccTouchMoved(CCTouch* touch, CCEvent* event) {}
-    virtual void ccTouchEnded(CCTouch* touch, CCEvent* event) {}
-    virtual void ccTouchCancelled(CCTouch* touch, CCEvent* event) {}
+    void ccTouchMoved(CCTouch* touch, CCEvent* event) override {}
+    void ccTouchEnded(CCTouch* touch, CCEvent* event) override {}
+    void ccTouchCancelled(CCTouch* touch, CCEvent* event) override {}
 
     void playCustomSound() {
         FMODAudioEngine::sharedEngine()->playEffect("mythic_badge.mp3"_spr);
@@ -1396,7 +1399,7 @@ public:
     }
 };
 
-// DENTRO DEL ARCHIVO Popups.h
+
 
 class AllRachasPopup : public Popup<> {
 protected:
@@ -1408,7 +1411,7 @@ protected:
         float y = winSize.height / 2 + 20.f;
         float spacing = 50.f;
 
-        // <<< CAMBIO: Se han actualizado los días y los puntos requeridos en esta lista >>>
+        
         std::vector<std::tuple<std::string, int, int>> rachas = {
             { "racha1.png"_spr, 1,  2 },
             { "racha2.png"_spr, 10, 3 },
@@ -1598,18 +1601,18 @@ public:
     }
 };
 
-// EN Popups.h
+
 
 class MissionsPopup : public Popup<> {
 protected:
-    // Variables para la paginación y animación
+    
     int m_currentPage = 0;
     CCLayer* m_pageContainer;
     CCMenuItemSpriteExtra* m_leftArrow;
     CCMenuItemSpriteExtra* m_rightArrow;
     bool m_isAnimating = false;
 
-    // La función que crea cada misión individual no cambia
+   
     CCNode* createPointMissionNode(int missionID) {
         int targetPoints, reward;
         bool isClaimed;
@@ -1711,7 +1714,10 @@ protected:
         m_rightArrow = CCMenuItemSpriteExtra::create(rightSpr, this, menu_selector(MissionsPopup::onSwitchPage));
         m_rightArrow->setTag(1);
 
-        auto navMenu = CCMenu::create(m_leftArrow, m_rightArrow, nullptr);
+        CCArray* navItems = CCArray::create();
+        navItems->addObject(m_leftArrow);
+        navItems->addObject(m_rightArrow);
+        auto navMenu = CCMenu::createWithArray(navItems);
         navMenu->alignItemsHorizontallyWithPadding(background->getContentSize().width + 25.f);
         navMenu->setPosition(background->getPosition());
         m_mainLayer->addChild(navMenu);
@@ -1779,7 +1785,7 @@ protected:
         m_rightArrow->setVisible(m_currentPage < totalPages - 1);
     }
 
-    // <<< CAMBIO: Cambio de página ahora es instantáneo >>>
+    
     void onSwitchPage(CCObject* sender) {
         if (m_isAnimating) return;
         int direction = sender->getTag();
@@ -1791,11 +1797,11 @@ protected:
         if (m_isAnimating) return;
         m_isAnimating = true;
 
-        // <<< CAMBIO: Se añade el sonido >>>
+        
         FMODAudioEngine::sharedEngine()->playEffect("claim_mission.mp3"_spr);
 
         int missionID = sender->getTag();
-        this->setTag(missionID); // Guardamos el ID para usarlo al final de la animación
+        this->setTag(missionID); 
 
         auto availableMissions = getAvailableMissionIDs();
         auto claimedNode = m_pageContainer->getChildByTag(missionID);
@@ -1810,14 +1816,14 @@ protected:
             nullptr
         ));
 
-        // Animamos las misiones de abajo para que suban
+        
         for (auto* child : CCArrayExt<CCNode*>(m_pageContainer->getChildren())) {
             if (child->getPositionY() < claimedNode->getPositionY()) {
                 child->runAction(CCEaseSineInOut::create(CCMoveBy::create(0.3f, { 0, 50.f })));
             }
         }
 
-        // Buscamos la primera misión de la siguiente página para traerla
+        
         int missionsPerPage = 3;
         int nextMissionIndex = m_currentPage * missionsPerPage + missionsPerPage;
 
@@ -1825,9 +1831,9 @@ protected:
             int nextMissionID = availableMissions[nextMissionIndex];
             if (auto newNode = createPointMissionNode(nextMissionID)) {
                 newNode->setTag(nextMissionID);
-                newNode->setPosition({ -300.f, -50.f }); // Empezar desde fuera a la izquierda
+                newNode->setPosition({ -300.f, -50.f }); 
                 m_pageContainer->addChild(newNode);
-                newNode->runAction(CCEaseSineInOut::create(CCMoveTo::create(0.3f, { 0, -50.f }))); // Deslizar al último slot
+                newNode->runAction(CCEaseSineInOut::create(CCMoveTo::create(0.3f, { 0, -50.f }))); 
             }
         }
 
@@ -1856,7 +1862,7 @@ protected:
             countLabel->setString(std::to_string(g_streakData.superStars).c_str());
         }
 
-        // Refrescamos la UI para que esté en un estado perfecto y limpio
+        
         updatePage();
         m_isAnimating = false;
     }
@@ -2263,7 +2269,7 @@ protected:
     void onRachaClick(CCObject*) { AllRachasPopup::create()->show(); }
     void onOpenMissions(CCObject*) { MissionsPopup::create()->show(); }
     void onInfo(CCObject*) {
-        // <<< CAMBIO: Se ha restaurado la función original y se ha añadido la nueva información >>>
+        
         std::string message =
             "Complete rated levels every day to earn <cp>Streak Points</c> and increase your streak!\n\n"
             "<cg>Point Rewards:</c>\n"

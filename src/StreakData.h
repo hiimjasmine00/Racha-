@@ -11,7 +11,7 @@
 
 using namespace geode::prelude;
 
-// ================== SISTEMA DE RACHAS Y RECOMPENSAS ==================
+
 struct StreakData {
     int currentStreak = 0;
     int streakPointsToday = 0;
@@ -25,8 +25,6 @@ struct StreakData {
     int starTickets = 0;
     std::vector<int> streakCompletedLevels;
     std::map<std::string, int> streakPointsHistory;
-
-    // CAMBIO: Se reintroducen las misiones, pero adaptadas a puntos
     bool pointMission1Claimed = false;
     bool pointMission2Claimed = false;
     bool pointMission3Claimed = false;
@@ -70,15 +68,15 @@ struct StreakData {
 
     std::vector<bool> unlockedBadges;
     int getRequiredPoints() {
-        if (currentStreak >= 80) return 10; // Antes 21
-        if (currentStreak >= 70) return 9;  // Antes 19
-        if (currentStreak >= 60) return 8;  // Antes 17
-        if (currentStreak >= 50) return 7;  // Antes 15
-        if (currentStreak >= 40) return 6;  // Antes 13
-        if (currentStreak >= 30) return 5;  // Antes 11
-        if (currentStreak >= 20) return 4;  // Antes 9
-        if (currentStreak >= 10) return 3;  // Antes 7
-        if (currentStreak >= 1)  return 2;  // Antes 5
+        if (currentStreak >= 80) return 10; 
+        if (currentStreak >= 70) return 9;  
+        if (currentStreak >= 60) return 8;  
+        if (currentStreak >= 50) return 7;  
+        if (currentStreak >= 40) return 6;  
+        if (currentStreak >= 30) return 5;  
+        if (currentStreak >= 20) return 4;  
+        if (currentStreak >= 10) return 3;  
+        if (currentStreak >= 1)  return 2;  
         return 2;
     }
 
@@ -115,7 +113,7 @@ struct StreakData {
         starTickets = geode::Mod::get()->getSavedValue<int>("starTickets", 0);
         streakCompletedLevels = geode::Mod::get()->getSavedValue<std::vector<int>>("streakCompletedLevels", {});
 
-        // CAMBIO: Cargar estado de las misiones de puntos
+       
         pointMission1Claimed = geode::Mod::get()->getSavedValue<bool>("pointMission1Claimed", false);
         pointMission2Claimed = geode::Mod::get()->getSavedValue<bool>("pointMission2Claimed", false);
         pointMission3Claimed = geode::Mod::get()->getSavedValue<bool>("pointMission3Claimed", false);
@@ -129,7 +127,7 @@ struct StreakData {
         }
         streakPointsHistory = geode::Mod::get()->getSavedValue<std::map<std::string, int>>("streakPointsHistory", {});
     }
-    // EN EL ARCHIVO StreakData.h
+    
 
     void save() {
         geode::Mod::get()->setSavedValue<int>("streak", currentStreak);
@@ -137,14 +135,13 @@ struct StreakData {
         geode::Mod::get()->setSavedValue<int>("totalStreakPoints", totalStreakPoints);
         geode::Mod::get()->setSavedValue<bool>("hasNewStreak", hasNewStreak);
         geode::Mod::get()->setSavedValue<std::string>("lastDay", lastDay);
-        geode::Mod::get()->setSavedValue<std::string>("equippedBadge", equippedBadge); // Esta línea es la importante
+        geode::Mod::get()->setSavedValue<std::string>("equippedBadge", equippedBadge); 
         geode::Mod::get()->setSavedValue<int>("superStars", superStars);
         geode::Mod::get()->setSavedValue<int>("lastRouletteIndex", lastRouletteIndex);
         geode::Mod::get()->setSavedValue<int>("totalSpins", totalSpins);
         geode::Mod::get()->setSavedValue<int>("starTickets", starTickets);
 
-        // <<< CAMBIO CLAVE: Se ha corregido la forma en que se guardan las misiones >>>
-        // Ahora cada llamada es independiente y no se reasigna a la variable.
+		
         geode::Mod::get()->setSavedValue<bool>("pointMission1Claimed", pointMission1Claimed);
         geode::Mod::get()->setSavedValue<bool>("pointMission2Claimed", pointMission2Claimed);
         geode::Mod::get()->setSavedValue<bool>("pointMission3Claimed", pointMission3Claimed);
@@ -207,14 +204,12 @@ struct StreakData {
         if (streak_should_be_lost) {
             currentStreak = 0;
             streakPointsHistory.clear();
-
-            // <<< CAMBIO CLAVE: El contador total solo se reinicia si se pierde la racha >>>
             totalStreakPoints = 0;
 
             FLAlertLayer::create("Streak Lost", "You missed a day!", "OK")->show();
         }
 
-        // El contador diario siempre se reinicia
+        
         streakPointsToday = 0;
         lastDay = today;
 

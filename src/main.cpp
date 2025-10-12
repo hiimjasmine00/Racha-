@@ -17,42 +17,27 @@
 
 class $modify(MyPlayLayer, PlayLayer) {
     void levelComplete() {
-        // Dejamos que la función original se ejecute primero
+        
         PlayLayer::levelComplete();
-
-        // <<< ========= INICIO DEL BLOQUE MODIFICADO ========= >>>
-
-        // Obtenemos las estrellas del nivel
         int stars = this->m_level->m_stars;
         int pointsGained = 0;
-
-        // <<< CAMBIO CLAVE: Añadimos la comprobación '!this->m_isPracticeMode' >>>
-        // Ahora, el código solo se ejecutará si el nivel tiene rate Y NO estamos en modo práctica.
         if (stars > 0 && !this->m_isPracticeMode) {
-
-            // Calculamos los puntos ganados según la dificultad (estrellas)
-            if (stars >= 1 && stars <= 3) {
-                // Auto, Easy, Normal
+            if (stars >= 1 && stars <= 3) {                
                 pointsGained = 1;
             }
-            else if (stars >= 4 && stars <= 5) {
-                // Hard
+            else if (stars >= 4 && stars <= 5) {               
                 pointsGained = 3;
             }
-            else if (stars >= 6 && stars <= 7) {
-                // Harder
+            else if (stars >= 6 && stars <= 7) {              
                 pointsGained = 4;
             }
-            else if (stars >= 8 && stars <= 9) {
-                // Insane
-                pointsGained = 5;
-            }
-            else if (stars == 10) {
-                // Demon
+            else if (stars >= 8 && stars <= 9) {                
+                pointsGained = 5;            }
+            else if (stars == 10) {              
                 pointsGained = 6;
             }
 
-            // Si ganamos puntos, ejecutamos la lógica de guardado y animación
+           
             if (pointsGained > 0) {
                 g_streakData.load();
                 int pointsBefore = g_streakData.streakPointsToday;
@@ -67,7 +52,7 @@ class $modify(MyPlayLayer, PlayLayer) {
                 }
             }
         }
-        // <<< ========= FIN DEL BLOQUE MODIFICADO ========= >>>
+        
     }
 };
 
@@ -195,7 +180,6 @@ class $modify(MyProfilePage, ProfilePage) {
 };
 
 class $modify(MyCommentCell, CommentCell) {
-    // Las struct Fields y la función onBadgeInfoClick no cambian
     struct Fields {
         CCMenuItemSpriteExtra* badgeButton = nullptr;
     };
@@ -215,7 +199,7 @@ class $modify(MyCommentCell, CommentCell) {
         }
     }
 
-    // <<< FUNCIÓN CORREGIDA >>>
+    
     void loadFromComment(GJComment * p0) {
         CommentCell::loadFromComment(p0);
 
@@ -226,27 +210,17 @@ class $modify(MyCommentCell, CommentCell) {
                 auto equippedBadge = g_streakData.getEquippedBadge();
 
                 if (equippedBadge) {
-                    // --- LÓGICA DE PRIORIDAD CORREGIDA ---
-
-                    // 1. Creamos una lista para las insignias de otros mods
                     cocos2d::CCArray* otherBadges = cocos2d::CCArray::create();
-
-                    // 2. Recorremos los hijos del menú, PERO empezamos desde el segundo elemento (índice 1)
-                    //    Esto deja el primer elemento (el nombre de usuario) intacto.
                     for (size_t i = 1; i < username_menu->getChildrenCount(); ++i) {
                         if (auto item = dynamic_cast<CCMenuItem*>(username_menu->getChildren()->objectAtIndex(i))) {
                             otherBadges->addObject(item);
                         }
                     }
 
-                    // 3. Eliminamos solo las insignias de otros mods que encontramos
+                    
                     for (auto* item : CCArrayExt<CCNode*>(otherBadges)) {
                         item->removeFromParent();
                     }
-
-                    // --- FIN DE LA LÓGICA CORREGIDA ---
-
-                    // 4. Ahora, añadimos NUESTRA insignia
                     auto badgeSprite = CCSprite::create(equippedBadge->spriteName.c_str());
                     if (badgeSprite) {
                         badgeSprite->setScale(0.15f);

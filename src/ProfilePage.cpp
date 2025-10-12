@@ -1,16 +1,15 @@
-#include "StreakData.h" // Incluye tu archivo de datos
+#include "StreakData.h" 
 #include <Geode/modify/ProfilePage.hpp>
 #include <Geode/binding/CCMenuItemSpriteExtra.hpp>
 #include <Geode/binding/GJAccountManager.hpp>
 #include <Geode/binding/GJUserScore.hpp>
 
-// IDs únicos para encontrar y eliminar los elementos duplicados al refrescar
 const char* STREAK_STAT_ID = "jotabelike.gd_racha/streak-stat-item";
 const char* STREAK_BADGE_ID = "jotabelike.gd_racha/streak-badge-item";
 
 class $modify(MyProfilePage, ProfilePage) {
 
-    // La función del clic para la insignia no necesita cambios
+    
     void onBadgeInfoClick(CCObject * sender) {
         if (auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())) {
             if (auto badgeInfo = g_streakData.getBadgeInfo(badgeID->getCString())) {
@@ -26,7 +25,7 @@ class $modify(MyProfilePage, ProfilePage) {
         }
     }
 
-    // La función del clic para el contador de puntos no necesita cambios
+    
     void onStreakStatClick(CCObject * sender) {
         g_streakData.load();
         std::string alertContent = fmt::format(
@@ -37,13 +36,11 @@ class $modify(MyProfilePage, ProfilePage) {
     }
 
     void loadPageFromUserInfo(GJUserScore * score) {
-        // Dejamos que el juego cargue la página original primero
         ProfilePage::loadPageFromUserInfo(score);
-
-        // Solo aplicamos esto en nuestro propio perfil
+       
         if (score->m_accountID == GJAccountManager::get()->get()->m_accountID) {
 
-            // --- LÓGICA PARA LA ESTADÍSTICA DE PUNTOS ---
+           
             if (auto statsMenu = m_mainLayer->getChildByIDRecursive("stats-menu")) {
 
                 if (auto oldStat = statsMenu->getChildByID(STREAK_STAT_ID)) {
@@ -93,15 +90,14 @@ class $modify(MyProfilePage, ProfilePage) {
 
                 statsMenu->updateLayout();
 
-                // <<< CAMBIO CLAVE: Reducimos la escala de todo el menú de estadísticas >>>
-                statsMenu->setScale(0.9f); // Puedes ajustar este valor (ej. 0.85 para más pequeño)
+               
+                statsMenu->setScale(0.9f); 
 
-                // <<< CAMBIO OPCIONAL: Ajustamos la posición Y para recentrarlo verticalmente >>>
-                // Al escalar, el menú se encoge. Este ajuste lo sube un poco para compensar.
+              
                 statsMenu->setPositionY(statsMenu->getPositionY() + 4.f);
             }
 
-            // --- LÓGICA PARA LA INSIGNIA EQUIPADA ---
+           
             if (auto username_menu = m_mainLayer->getChildByIDRecursive("username-menu")) {
 
                 if (auto oldBadge = username_menu->getChildByID(STREAK_BADGE_ID)) {
