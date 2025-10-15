@@ -13,7 +13,7 @@ using namespace geode::prelude;
 class $modify(MyColoredCommentCell, CommentCell) {
     struct Fields {
         float m_time = 0.f;
-        
+       
         EventListener<web::WebTask> m_mythicCheckListener;
     };
 
@@ -56,20 +56,20 @@ class $modify(MyColoredCommentCell, CommentCell) {
 
         int accountID = comment->m_accountID;
 
-       
+        
         if (accountID > 0 && accountID == GJAccountManager::sharedState()->m_accountID) {
             g_streakData.load();
-            
             if (auto* equippedBadge = g_streakData.getEquippedBadge()) {
                 if (equippedBadge->category == StreakData::BadgeCategory::MYTHIC) {
                     this->schedule(schedule_selector(MyColoredCommentCell::updateRainbowEffect));
                 }
             }
         }
-       
+        
         else if (accountID > 0) {
+            
             std::string url = fmt::format(
-                "https://streak-44a83-default-rtdb.firebaseio.com/players/{}.json",
+                "https://streak-servidor.onrender.com/players/{}",
                 accountID
             );
 
@@ -78,7 +78,7 @@ class $modify(MyColoredCommentCell, CommentCell) {
                     if (res->ok() && res->json().isOk()) {
                         try {
                             auto playerData = res->json().unwrap();
-                            
+                           
                             bool hasMythic = playerData["has_mythic_color"].as<bool>().unwrapOr(false);
                             if (hasMythic) {
                                
@@ -92,7 +92,7 @@ class $modify(MyColoredCommentCell, CommentCell) {
                 }
                 });
 
-            
+            // Hacemos la petición a nuestro servidor para obtener los datos.
             auto req = web::WebRequest();
             m_fields->m_mythicCheckListener.setFilter(req.get(url));
         }

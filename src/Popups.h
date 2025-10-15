@@ -1384,7 +1384,13 @@ protected:
             g_streakData.equipBadge(m_badgeID);
             FLAlertLayer::create("Success", "Badge equipped!", "OK")->show();
         }
+
+       
+        g_streakData.save();
+
+       
         updatePlayerDataInFirebase();
+
         this->onClose(nullptr);
     }
 
