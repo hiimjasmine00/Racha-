@@ -3629,26 +3629,30 @@ protected:
         RoulettePopup::create()->show();
     }
 
+    // --- FUNCIONES DE ANIMACIÓN (Compatibles con iOS/macOS) ---
+
     void showStreakAnimation(int streakLevel) {
         auto winSize = CCDirector::sharedDirector()->getWinSize();
 
+        // 1. Capa del Fondo (Solo se desvanece, NO se encoge)
         auto bgLayer = CCLayerColor::create({ 0, 0, 0, 0 });
-        bgLayer->setTag(110);
-        this->addChild(bgLayer, 1000);
+        bgLayer->setTag(110); // Tag diferente para el fondo
+        this->addChild(bgLayer, 1000); // Z alto
         bgLayer->runAction(CCFadeTo::create(0.5f, 200));
 
+        // 2. Capa de Contenido (Esta SÍ se encogerá al final)
         auto contentLayer = CCLayer::create();
-        contentLayer->setTag(111);
+        contentLayer->setTag(111); // Tag original para el contenido
         contentLayer->ignoreAnchorPointForPosition(false);
         contentLayer->setAnchorPoint({ 0.5f, 0.5f });
         contentLayer->setPosition(winSize / 2);
-        contentLayer->setContentSize(winSize);
-        this->addChild(contentLayer, 1001);
+        contentLayer->setContentSize(winSize); // Para que sus hijos relativos funcionen bien
+        this->addChild(contentLayer, 1001); // Z más alto que el fondo
 
-        // CORRECCIÓN 1: Usar CCParticleSun y reconfigurar (más compatible que Fireworks o createWithTotalParticles)
+        // --- Partículas (Usando CCParticleSun como base para máxima compatibilidad) ---
         auto particles = CCParticleSun::create();
         if (particles) {
-            particles->setTotalParticles(150); // Establecer cantidad después de crear
+            particles->setTotalParticles(150);
             particles->setDuration(1.5f);
             particles->setPosition(winSize / 2);
             particles->setPosVar({ 40.0f, 20.0f });
@@ -3663,19 +3667,19 @@ protected:
             particles->setStartSizeVar(5.0f);
             particles->setEndSize(0.0f);
             particles->setEmissionRate(150 / 1.5f);
-            particles->setStartColor({ 1.0f, 0.84f, 0.0f, 1.0f });
+            particles->setStartColor({ 1.0f, 0.84f, 0.0f, 1.0f }); // Dorado
             particles->setStartColorVar({ 0.0f, 0.0f, 0.0f, 0.0f });
             particles->setEndColor({ 1.0f, 0.84f, 0.0f, 0.0f });
             particles->setEndColorVar({ 0.0f, 0.0f, 0.0f, 0.0f });
             particles->setAutoRemoveOnFinish(true);
 
-            // CORRECCIÓN 2: Evitar CCTextureCache::addImage
-            auto fireSprite = CCSprite::create("fire.png");
+            // Intento de textura personalizada con fallback seguro
+            auto fireSprite = CCSprite::create("cuadro.png");
             if (fireSprite && fireSprite->getTexture()) {
                 particles->setTexture(fireSprite->getTexture());
             }
             else {
-                // Fallback a una textura por defecto del juego si fire.png no existe
+                // Fallback a una textura del juego si no tienes fire.png
                 auto defaultTex = CCSprite::createWithSpriteFrameName("GJ_circle_01_001.png");
                 if (defaultTex && defaultTex->getTexture()) {
                     particles->setTexture(defaultTex->getTexture());
@@ -3684,24 +3688,58 @@ protected:
             contentLayer->addChild(particles, 1);
         }
 
+        // --- Sprite de la Racha ---
         auto rachaSprite = CCSprite::create(g_streakData.getRachaSprite().c_str());
         if (rachaSprite) {
             rachaSprite->setPosition(winSize / 2);
             rachaSprite->setScale(0.0f);
             contentLayer->addChild(rachaSprite, 2);
-            rachaSprite->runAction(CCSequence::create(CCDelayTime::create(0.3f), CCEaseElasticOut::create(CCScaleTo::create(1.2f, 1.0f), 0.6f), nullptr));
-            rachaSprite->runAction(CCSequence::create(CCDelayTime::create(1.5f), CCRepeatForever::create(CCSequence::create(CCMoveBy::create(1.5f, { 0, 15.f }), CCMoveBy::create(1.5f, { 0, -15.f }), nullptr)), nullptr));
+
+            // Entrada elástica
+            rachaSprite->runAction(CCSequence::create(
+                CCDelayTime::create(0.3f),
+                CCEaseElasticOut::create(CCScaleTo::create(1.2f, 1.0f), 0.6f),
+                nullptr
+            ));
+
+            // Flotación continua
+            rachaSprite->runAction(CCSequence::create(
+                CCDelayTime::create(1.5f),
+                CCRepeatForever::create(CCSequence::create(
+                    CCMoveBy::create(1.5f, { 0, 15.f }),
+                    CCMoveBy::create(1.5f, { 0, -15.f }),
+                    nullptr
+                )),
+                nullptr
+            ));
         }
 
+        // --- Texto "Day X!" ---
         auto daysLabel = CCLabelBMFont::create(fmt::format("Day {}!", streakLevel).c_str(), "goldFont.fnt");
         daysLabel->setPosition({ winSize.width / 2, winSize.height / 2 - 100.f });
         daysLabel->setScale(0.0f);
         contentLayer->addChild(daysLabel, 2);
-        daysLabel->runAction(CCSequence::create(CCDelayTime::create(0.8f), CCEaseBackOut::create(CCScaleTo::create(0.5f, 1.0f)), nullptr));
 
+        daysLabel->runAction(CCSequence::create(
+            CCDelayTime::create(0.8f),
+            CCEaseBackOut::create(CCScaleTo::create(0.5f, 1.0f)),
+            nullptr
+        ));
+
+        // --- Sonidos y Salida Programada ---
         FMODAudioEngine::sharedEngine()->playEffect("achievement.mp3"_spr);
-        contentLayer->runAction(CCSequence::create(CCDelayTime::create(0.5f), CCCallFunc::create(this, callfunc_selector(InfoPopup::playExtraStreakSound)), nullptr));
-        contentLayer->runAction(CCSequence::create(CCDelayTime::create(6.0f), CCCallFunc::create(this, callfunc_selector(InfoPopup::onAnimationExit)), nullptr));
+
+        contentLayer->runAction(CCSequence::create(
+            CCDelayTime::create(0.5f),
+            CCCallFunc::create(this, callfunc_selector(InfoPopup::playExtraStreakSound)),
+            nullptr
+        ));
+
+        contentLayer->runAction(CCSequence::create(
+            CCDelayTime::create(6.0f),
+            CCCallFunc::create(this, callfunc_selector(InfoPopup::onAnimationExit)),
+            nullptr
+        ));
     }
 
     void playExtraStreakSound() {
@@ -3709,11 +3747,25 @@ protected:
     }
 
     void onAnimationExit() {
+        // 1. Desvanecer el fondo
         if (auto bgLayer = this->getChildByTag(110)) {
-            bgLayer->runAction(CCSequence::create(CCFadeOut::create(0.5f), CCRemoveSelf::create(), nullptr));
+            bgLayer->runAction(CCSequence::create(
+                CCFadeOut::create(0.5f),
+                CCRemoveSelf::create(),
+                nullptr
+            ));
         }
+        // 2. Encoger y desvanecer el contenido
         if (auto contentLayer = this->getChildByTag(111)) {
-            contentLayer->runAction(CCSequence::create(CCSpawn::create(CCFadeOut::create(0.5f), CCEaseBackIn::create(CCScaleTo::create(0.5f, 0.0f)), nullptr), CCRemoveSelf::create(), nullptr));
+            contentLayer->runAction(CCSequence::create(
+                CCSpawn::create(
+                    CCFadeOut::create(0.5f),
+                    CCEaseBackIn::create(CCScaleTo::create(0.5f, 0.0f)),
+                    nullptr
+                ),
+                CCRemoveSelf::create(),
+                nullptr
+            ));
         }
     }
 
