@@ -14,12 +14,14 @@ using namespace geode::prelude;
 static EventListener<web::WebTask> s_updateListener;
 static EventListener<web::WebTask> s_loadListener;
 
-// --- CARGA DE DATOS ---
+// En TestFirebase.cpp
+
 void loadPlayerDataFromServer() {
     auto am = GJAccountManager::sharedState();
     if (!am || am->m_accountID == 0) {
         g_streakData.resetToDefault();
         g_streakData.isDataLoaded = true;
+        g_streakData.m_initialized = true; // Asegurar que esto también sea true
         return;
     }
     int accountID = am->m_accountID;
@@ -32,17 +34,37 @@ void loadPlayerDataFromServer() {
                 try {
                     g_streakData.parseServerResponse(res->json().unwrap());
                     g_streakData.isDataLoaded = true;
+                    g_streakData.m_initialized = true; // ¡IMPORTANTE!
                     log::info("☁️✅ Datos recibidos y procesados.");
                 }
                 catch (const std::exception& err) {
                     log::error("☁️❌ Error al leer JSON: {}", err.what());
-                    g_streakData.resetToDefault(); g_streakData.isDataLoaded = true;
+                    g_streakData.resetToDefault();
+                    g_streakData.isDataLoaded = true;
+                    g_streakData.m_initialized = true;
                 }
             }
-            else {
-                log::warn("☁️⚠️ Carga fallida (Code: {}). Usando default.", res->code());
-                g_streakData.resetToDefault(); g_streakData.isDataLoaded = true;
+            // --- NUEVO: MANEJO ESPECÍFICO PARA 404 ---
+            else if (res->code() == 404) {
+                log::info("☁️ℹ️ Usuario nuevo (404). Requiere registro.");
+                g_streakData.resetToDefault();
+                g_streakData.needsRegistration = true;
+                g_streakData.isDataLoaded = true;
+                g_streakData.m_initialized = true;
             }
+            // --- CORRECCIÓN AQUÍ ---
+            else {
+                log::warn("☁️⚠️ Carga fallida (Code: {}). Mantenemos estado de error.", res->code());
+                // NO marcamos como loaded ni initialized si falla la red.
+                g_streakData.isDataLoaded = false;
+                g_streakData.m_initialized = false;
+            }
+            // -----------------------
+        }
+        else if (e->isCancelled()) {
+            log::warn("☁️⚠️ Carga cancelada.");
+            g_streakData.isDataLoaded = false;
+            g_streakData.m_initialized = false;
         }
         });
     auto req = web::WebRequest();

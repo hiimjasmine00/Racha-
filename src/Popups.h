@@ -24,9 +24,11 @@
 #include <Geode/binding/ProfilePage.hpp> // Necesario para ver el perfil
 #include <Geode/Result.hpp> // Para value_or
 #include <variant> // Necesario para std::holds_alternative
+#include <Geode/ui/Notification.hpp>
 
 
 
+#include <Geode/binding/CCMenuItemSpriteExtra.hpp> // Necesario para los botones
 
 #include <map>    // Necesario para std::map
 
@@ -884,163 +886,427 @@ public:
     }
 };
 
+class MyCodesPopup : public Popup<> {
+protected:
+    ScrollLayer* m_listLayer;
+    CCLabelBMFont* m_loadingLabel = nullptr; // NUEVO: Texto en vez de círculo
+    EventListener<web::WebTask> m_listener;
+
+    bool setup() override {
+        this->setTitle("My Codes");
+        auto winSize = m_mainLayer->getContentSize();
+
+        auto listSize = CCSize{ 320.f, 180.f };
+        m_listLayer = ScrollLayer::create(listSize);
+        m_listLayer->setPosition((winSize - listSize) / 2);
+
+        auto bg = cocos2d::extension::CCScale9Sprite::create("square02_001.png");
+        bg->setContentSize(listSize);
+        bg->setColor({ 0,0,0 }); bg->setOpacity(80);
+        bg->setPosition(winSize / 2);
+        m_mainLayer->addChild(bg);
+        m_mainLayer->addChild(m_listLayer);
+
+        // --- NUEVO INDICADOR DE CARGA ---
+        m_loadingLabel = CCLabelBMFont::create("Loading...", "bigFont.fnt");
+        m_loadingLabel->setPosition(winSize / 2);
+        m_loadingLabel->setScale(0.5f);
+        m_mainLayer->addChild(m_loadingLabel, 99);
+        // --------------------------------
+
+        this->loadCodes();
+        return true;
+    }
+
+    void loadCodes() {
+        auto am = GJAccountManager::sharedState();
+        matjson::Value payload = matjson::Value::object();
+        payload.set("accountID", am->m_accountID);
+
+        m_listener.bind([this](web::WebTask::Event* e) {
+            if (web::WebResponse* res = e->getValue()) {
+                // Ocultar texto de carga
+                if (m_loadingLabel) m_loadingLabel->setVisible(false);
+
+                if (res->ok() && res->json().isOk()) {
+                    this->populateList(res->json().unwrap());
+                }
+                else {
+                    FLAlertLayer::create("Error", "Failed to fetch codes.", "OK")->show();
+                    this->onClose(nullptr);
+                }
+            }
+            else if (e->isCancelled()) {
+                if (m_loadingLabel) m_loadingLabel->setVisible(false);
+            }
+            });
+
+        auto req = web::WebRequest();
+        m_listener.setFilter(req.bodyJSON(payload).post("https://streak-servidor.onrender.com/my-codes"));
+    }
+
+    void populateList(matjson::Value data) {
+        if (!data.isArray()) return;
+        auto codes = data.as<std::vector<matjson::Value>>().unwrap();
+
+        if (codes.empty()) {
+            auto emptyLabel = CCLabelBMFont::create("No codes created yet.", "bigFont.fnt");
+            emptyLabel->setScale(0.5f);
+            emptyLabel->setPosition(m_listLayer->getContentSize() / 2);
+            m_listLayer->addChild(emptyLabel);
+            return;
+        }
+
+        auto content = CCNode::create();
+        float itemHeight = 35.f;
+        float totalHeight = std::max(m_listLayer->getContentSize().height, codes.size() * itemHeight + 10.f);
+        content->setContentSize({ m_listLayer->getContentSize().width, totalHeight });
+
+        for (size_t i = 0; i < codes.size(); ++i) {
+            std::string name = codes[i]["name"].as<std::string>().unwrapOr("???");
+            int used = codes[i]["used"].as<int>().unwrapOr(0);
+            int max = codes[i]["max"].as<int>().unwrapOr(0);
+            bool active = codes[i]["active"].as<bool>().unwrapOr(true);
+
+            float yPos = totalHeight - (i * itemHeight) - 20.f;
+
+            auto nameLabel = CCLabelBMFont::create(name.c_str(), "goldFont.fnt");
+            nameLabel->setScale(0.5f);
+            nameLabel->setAnchorPoint({ 0.f, 0.5f });
+            nameLabel->setPosition({ 20.f, yPos });
+            if (!active) nameLabel->setColor({ 150, 150, 150 });
+            content->addChild(nameLabel);
+
+            auto usageLabel = CCLabelBMFont::create(fmt::format("Used: {}/{}", used, max).c_str(), "chatFont.fnt");
+            usageLabel->setScale(0.5f);
+            usageLabel->setAnchorPoint({ 1.f, 0.5f });
+            usageLabel->setPosition({ 300.f, yPos });
+            content->addChild(usageLabel);
+        }
+
+        m_listLayer->m_contentLayer->addChild(content);
+        m_listLayer->m_contentLayer->setContentSize(content->getContentSize());
+        m_listLayer->moveToTop();
+    }
+
+public:
+    static MyCodesPopup* create() {
+        auto ret = new MyCodesPopup();
+        if (ret && ret->initAnchored(360.f, 220.f)) {
+            ret->autorelease(); return ret;
+        }
+        CC_SAFE_DELETE(ret); return nullptr;
+    }
+};
+
+class BadgeSelectorPopup : public Popup<std::function<void(std::string)>> {
+protected:
+    std::function<void(std::string)> m_onSelect;
+
+    bool setup(std::function<void(std::string)> onSelect) override {
+        m_onSelect = onSelect;
+        this->setTitle("Select Badge");
+
+        auto winSize = m_mainLayer->getContentSize();
+        auto listSize = CCSize{ 320.f, 180.f }; // Un poco más ancho
+        auto scroll = ScrollLayer::create(listSize);
+        scroll->setPosition((winSize - listSize) / 2);
+
+        // Fondo oscuro para que se vea mejor
+        auto bg = cocos2d::extension::CCScale9Sprite::create("square02_001.png");
+        bg->setContentSize(listSize);
+        bg->setColor({ 0,0,0 });
+        bg->setOpacity(80);
+        bg->setPosition(winSize / 2);
+        m_mainLayer->addChild(bg);
+        m_mainLayer->addChild(scroll);
+
+        auto menu = CCMenu::create();
+        menu->setPosition({ 0,0 }); // Importante para que el scroll funcione bien
+
+        int cols = 4;
+        float spacingX = 75.f;
+        float spacingY = 75.f;
+        int rows = (g_streakData.badges.size() + cols - 1) / cols;
+        float totalHeight = std::max(listSize.height, rows * spacingY + 20.f);
+
+        menu->setContentSize({ listSize.width, totalHeight });
+
+        float startX = (listSize.width - ((cols - 1) * spacingX)) / 2; // Centrar horizontalmente
+        float startY = totalHeight - 50.f; // Empezar desde arriba
+
+        for (int i = 0; i < g_streakData.badges.size(); ++i) {
+            int col = i % cols;
+            int row = i / cols;
+            auto& badge = g_streakData.badges[i];
+
+            auto spr = CCSprite::create(badge.spriteName.c_str());
+            if (!spr) spr = CCSprite::createWithSpriteFrameName("GJ_unknownBtn_001.png");
+            spr->setScale(0.4f);
+
+            auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(BadgeSelectorPopup::onBadgeSelected));
+            btn->setUserObject(CCString::create(badge.badgeID));
+            btn->setPosition({ startX + col * spacingX, startY - row * spacingY });
+            menu->addChild(btn);
+        }
+
+        scroll->m_contentLayer->addChild(menu);
+        scroll->m_contentLayer->setContentSize(menu->getContentSize());
+        scroll->moveToTop();
+
+        return true;
+    }
+
+    void onBadgeSelected(CCObject* sender) {
+        if (m_onSelect) {
+            m_onSelect(static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())->getCString());
+        }
+        this->onClose(nullptr);
+    }
+
+public:
+    static BadgeSelectorPopup* create(std::function<void(std::string)> onSelect) {
+        auto ret = new BadgeSelectorPopup();
+        if (ret && ret->initAnchored(360.f, 250.f, onSelect)) {
+            ret->autorelease(); return ret;
+        }
+        CC_SAFE_DELETE(ret); return nullptr;
+    }
+};
+
+class CreateCodePopup : public Popup<> {
+protected:
+    TextInput* m_nameInput; TextInput* m_usesInput;
+    TextInput* m_starsInput; TextInput* m_ticketsInput;
+    CCLabelBMFont* m_badgeLabel = nullptr;
+    std::string m_selectedBadgeID = "";
+    CCMenuItemSpriteExtra* m_createBtn = nullptr; // NUEVO: Referencia al botón
+    EventListener<web::WebTask> m_createListener;
+    int m_pendingStars = 0; int m_pendingTickets = 0;
+
+    bool setup() override {
+        this->setTitle("Create Code");
+        auto winSize = m_mainLayer->getContentSize();
+        bool isAdmin = (g_streakData.userRole >= 2);
+
+        auto myCodesSpr = CCSprite::createWithSpriteFrameName("GJ_menuBtn_001.png");
+        myCodesSpr->setScale(0.65f);
+        auto myCodesBtn = CCMenuItemSpriteExtra::create(myCodesSpr, this, menu_selector(CreateCodePopup::onOpenMyCodes));
+        auto sideMenu = CCMenu::createWithItem(myCodesBtn);
+        sideMenu->setPosition({ 35.f, 35.f });
+        m_mainLayer->addChild(sideMenu);
+
+        m_nameInput = TextInput::create(150.f, "Code Name", "chatFont.fnt");
+        m_nameInput->setPosition({ winSize.width / 2 - 90.f, winSize.height - 65.f });
+        m_nameInput->setMaxCharCount(20);
+        m_nameInput->setFilter("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
+        m_mainLayer->addChild(m_nameInput);
+
+        m_usesInput = TextInput::create(80.f, "Uses", "chatFont.fnt");
+        m_usesInput->setPosition({ winSize.width / 2 + 90.f, winSize.height - 65.f });
+        m_usesInput->setFilter("0123456789");
+        m_mainLayer->addChild(m_usesInput);
+
+        float row2Y = winSize.height / 2 + 5.f;
+        auto starIcon = CCSprite::create("super_star.png"_spr); starIcon->setScale(0.2f);
+        starIcon->setPosition({ 85.f, row2Y + 22.f }); m_mainLayer->addChild(starIcon);
+        m_starsInput = TextInput::create(110.f, "Total Stars", "chatFont.fnt");
+        m_starsInput->setPosition({ 85.f, row2Y - 8.f }); m_starsInput->setFilter("0123456789");
+        m_mainLayer->addChild(m_starsInput);
+
+        auto ticketIcon = CCSprite::create("star_tiket.png"_spr); ticketIcon->setScale(0.25f);
+        ticketIcon->setPosition({ 215.f, row2Y + 22.f }); m_mainLayer->addChild(ticketIcon);
+        m_ticketsInput = TextInput::create(110.f, "Total Tickets", "chatFont.fnt");
+        m_ticketsInput->setPosition({ 215.f, row2Y - 8.f }); m_ticketsInput->setFilter("0123456789");
+        m_mainLayer->addChild(m_ticketsInput);
+
+        if (isAdmin) {
+            auto badgeBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("Badge", 0, 0, "goldFont.fnt", "GJ_button_05.png", 0, 0.6f), this, menu_selector(CreateCodePopup::onSelectBadge));
+            auto bMenu = CCMenu::createWithItem(badgeBtn); bMenu->setPosition({ 330.f, row2Y + 12.f }); m_mainLayer->addChild(bMenu);
+            m_badgeLabel = CCLabelBMFont::create("None", "chatFont.fnt"); m_badgeLabel->setScale(0.35f); m_badgeLabel->setPosition({ 330.f, row2Y - 20.f }); m_badgeLabel->setColor({ 200, 200, 200 }); m_mainLayer->addChild(m_badgeLabel);
+        }
+
+        // BOTÓN CREAR (Guardamos referencia en m_createBtn)
+        m_createBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("Create", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f), this, menu_selector(CreateCodePopup::onCreate));
+        auto cMenu = CCMenu::createWithItem(m_createBtn);
+        cMenu->setPosition({ winSize.width / 2, 45.f });
+        m_mainLayer->addChild(cMenu);
+
+        m_createListener.bind(this, &CreateCodePopup::onWebResponse);
+        return true;
+    }
+
+    void onOpenMyCodes(CCObject*) { MyCodesPopup::create()->show(); }
+    void onSelectBadge(CCObject*) { BadgeSelectorPopup::create([this](std::string id) { m_selectedBadgeID = id; if (m_badgeLabel) { m_badgeLabel->setString(id.c_str()); m_badgeLabel->setColor({ 0, 255, 100 }); } })->show(); }
+
+    void onCreate(CCObject*) {
+        std::string name = m_nameInput->getString(); std::string usesStr = m_usesInput->getString();
+        if (name.empty() || usesStr.empty()) { Notification::create("Name and Uses required", NotificationIcon::Error)->show(); return; }
+        int uses = std::stoi(usesStr); if (uses <= 0) { Notification::create("Invalid uses", NotificationIcon::Error)->show(); return; }
+        m_pendingStars = m_starsInput->getString().empty() ? 0 : std::stoi(m_starsInput->getString());
+        m_pendingTickets = m_ticketsInput->getString().empty() ? 0 : std::stoi(m_ticketsInput->getString());
+
+        if (m_pendingStars == 0 && m_pendingTickets == 0 && m_selectedBadgeID.empty()) { Notification::create("Add rewards", NotificationIcon::Error)->show(); return; }
+        if (m_pendingStars > 0 && m_pendingStars % uses != 0) { Notification::create("Stars must split evenly", NotificationIcon::Error)->show(); return; }
+        if (m_pendingTickets > 0 && m_pendingTickets % uses != 0) { Notification::create("Tickets must split evenly", NotificationIcon::Error)->show(); return; }
+
+        if (g_streakData.userRole < 2) {
+            if (m_pendingStars > g_streakData.superStars) { Notification::create("Not enough Super Stars!", NotificationIcon::Error)->show(); return; }
+            if (m_pendingTickets > g_streakData.starTickets) { Notification::create("Not enough Star Tickets!", NotificationIcon::Error)->show(); return; }
+        }
+
+        // --- CAMBIO DE ESTADO DEL BOTÓN A "LOADING..." ---
+        m_createBtn->setEnabled(false);
+        m_createBtn->setNormalImage(ButtonSprite::create("Loading...", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+        // -------------------------------------------------
+
+        matjson::Value rewards = matjson::Value::object();
+        if (m_pendingStars > 0) rewards.set("super_stars", m_pendingStars);
+        if (m_pendingTickets > 0) rewards.set("star_tickets", m_pendingTickets);
+        if (!m_selectedBadgeID.empty()) rewards.set("badge", m_selectedBadgeID);
+        matjson::Value payload = matjson::Value::object();
+        payload.set("modAccountID", GJAccountManager::sharedState()->m_accountID); payload.set("codeName", name); payload.set("maxUses", uses); payload.set("rewards", rewards);
+        auto req = web::WebRequest(); m_createListener.setFilter(req.bodyJSON(payload).post("https://streak-servidor.onrender.com/create-code"));
+    }
+
+    void onWebResponse(web::WebTask::Event* e) {
+        if (!e->getValue() && !e->isCancelled()) return;
+
+        if (web::WebResponse* res = e->getValue()) {
+            if (res->ok()) {
+                if (g_streakData.userRole < 2) { g_streakData.superStars -= m_pendingStars; g_streakData.starTickets -= m_pendingTickets; g_streakData.save(); }
+                // ÉXITO: El popup se cierra, no hace falta restaurar el botón
+                FLAlertLayer::create("Success", "Code Created Successfully!", "OK")->show();
+                this->onClose(nullptr);
+            }
+            else {
+                // ERROR: Restauramos el botón a "Create"
+                m_createBtn->setEnabled(true);
+                m_createBtn->setNormalImage(ButtonSprite::create("Create", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+
+                std::string err = "Creation Failed";
+                if (res->json().isOk()) err = res->json().unwrap()["error"].as<std::string>().unwrapOr(err);
+                FLAlertLayer::create("Error", err.c_str(), "OK")->show();
+            }
+        }
+        else {
+            // ERROR DE RED: Restauramos el botón
+            m_createBtn->setEnabled(true);
+            m_createBtn->setNormalImage(ButtonSprite::create("Create", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+            Notification::create("Connection Failed", NotificationIcon::Error)->show();
+        }
+    }
+
+public:
+    static CreateCodePopup* create() {
+        auto ret = new CreateCodePopup();
+        if (ret && ret->initAnchored(420.f, 260.f)) { ret->autorelease(); return ret; }
+        CC_SAFE_DELETE(ret); return nullptr;
+    }
+};
+
 
 class RedeemCodePopup : public Popup<> {
 protected:
     TextInput* m_textInput;
-    CCMenuItemSpriteExtra* m_okBtn;
-    LoadingCircle* m_loadingCircle;
+    CCMenuItemSpriteExtra* m_redeemBtn; // NUEVO: Referencia al botón
     EventListener<web::WebTask> m_redeemListener;
-    bool m_isRequesting;
+    bool m_isRequesting = false;
 
     bool setup() override {
         this->setTitle("Redeem Code");
         auto winSize = m_mainLayer->getContentSize();
 
-
-
         m_textInput = TextInput::create(280.f, "Enter Code Here");
-        m_textInput->setPosition({ winSize.width / 2, winSize.height / 2 + 10.f }); 
+        m_textInput->setPosition({ winSize.width / 2, winSize.height / 2 + 10.f });
         m_textInput->setFilter("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
         m_textInput->setMaxCharCount(24);
         m_mainLayer->addChild(m_textInput);
 
-        m_okBtn = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("OK"),
-            this,
-            menu_selector(RedeemCodePopup::onOk)
-        );
-
-        auto menu = CCMenu::createWithItem(m_okBtn);
+        // BOTÓN REDEEM (Guardamos referencia)
+        m_redeemBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("Redeem", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f), this, menu_selector(RedeemCodePopup::onOk));
+        auto menu = CCMenu::createWithItem(m_redeemBtn);
         menu->setPosition({ winSize.width / 2, winSize.height / 2 - 45.f });
         m_mainLayer->addChild(menu);
 
-        m_loadingCircle = nullptr;
-        m_isRequesting = false;
+        if (g_streakData.userRole >= 1) {
+            auto newSpr = ButtonSprite::create("New", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 0.6f);
+            newSpr->setScale(0.8f);
+            auto newBtn = CCMenuItemSpriteExtra::create(newSpr, this, menu_selector(RedeemCodePopup::onOpenCreate));
+            auto topMenu = CCMenu::createWithItem(newBtn);
+            topMenu->setPosition({ winSize.width - 30.f, winSize.height - 30.f });
+            m_mainLayer->addChild(topMenu);
+        }
 
         m_redeemListener.bind(this, &RedeemCodePopup::onWebResponse);
-
         return true;
     }
 
+    void onOpenCreate(CCObject*) {
+        this->onClose(nullptr);
+        CreateCodePopup::create()->show();
+    }
+
     void onOk(CCObject*) {
-        if (m_isRequesting) {
-            return;
-        }
-
-        this->showLoading();
-
+        if (m_isRequesting) return;
         std::string code = m_textInput->getString();
-        int accountID = GJAccountManager::sharedState()->m_accountID;
+        if (code.empty()) { FLAlertLayer::create("Error", "Please enter a code.", "OK")->show(); return; }
 
-        if (accountID == 0) {
-            FLAlertLayer::create("Error", "You must be logged in to redeem a code.", "OK")->show();
-            this->hideLoading();
-            return;
-        }
-
-        if (code.empty()) {
-            FLAlertLayer::create("Error", "Please enter a code.", "OK")->show();
-            this->hideLoading();
-            return;
-        }
+        m_isRequesting = true;
+        
+        // --- CAMBIO DE ESTADO DEL BOTÓN ---
+        m_redeemBtn->setEnabled(false);
+        m_redeemBtn->setNormalImage(ButtonSprite::create("Loading...", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+        // ----------------------------------
 
         matjson::Value payload = matjson::Value::object();
         payload.set("code", code);
-        payload.set("accountID", accountID);
-
+        payload.set("accountID", GJAccountManager::sharedState()->m_accountID);
         auto req = web::WebRequest();
-        m_redeemListener.setFilter(
-            req.bodyJSON(payload).post("https://streak-servidor.onrender.com/redeem-code")
-        );
+        m_redeemListener.setFilter(req.bodyJSON(payload).post("https://streak-servidor.onrender.com/redeem-code"));
     }
 
     void onWebResponse(web::WebTask::Event* e) {
-        if (!e->getValue() && !e->isCancelled()) {
-            return;
-        }
-
-        this->hideLoading();
+        if (!e->getValue() && !e->isCancelled()) return;
+        m_isRequesting = false;
 
         if (web::WebResponse* res = e->getValue()) {
             if (res->ok() && res->json().isOk()) {
-                auto responseJson = res->json().unwrap();
-                std::string message = responseJson["message"].as<std::string>().unwrapOr("Success!");
-
-                if (responseJson.contains("rewardType")) {
-                    std::string rewardType = responseJson["rewardType"].as<std::string>().unwrapOr("");
-                    if (rewardType == "super_stars") {
-                        g_streakData.superStars += responseJson["rewardValue"].as<int>().unwrapOr(0);
-                    }
-                    else if (rewardType == "star_tickets") {
-                        g_streakData.starTickets += responseJson["rewardValue"].as<int>().unwrapOr(0);
-                    }
-                    else if (rewardType == "badge") {
-                        g_streakData.unlockBadge(responseJson["rewardValue"].as<std::string>().unwrapOr(""));
-                    }
-                    updatePlayerDataInFirebase();
+                auto json = res->json().unwrap();
+                // Actualizar datos locales
+                if (json.contains("rewards")) {
+                    auto r = json["rewards"];
+                    if (r.contains("super_stars")) g_streakData.superStars += r["super_stars"].as<int>().unwrapOr(0);
+                    if (r.contains("star_tickets")) g_streakData.starTickets += r["star_tickets"].as<int>().unwrapOr(0);
+                    if (r.contains("badge")) g_streakData.unlockBadge(r["badge"].as<std::string>().unwrapOr(""));
+                    g_streakData.save();
                 }
-
-                FLAlertLayer::create("Success", message.c_str(), "OK")->show();
+                FLAlertLayer::create("Redeemed!", json["message"].as<std::string>().unwrapOr("Success!").c_str(), "OK")->show();
                 this->onClose(nullptr);
+            } else {
+                // ERROR: Restaurar botón
+                m_redeemBtn->setEnabled(true);
+                m_redeemBtn->setNormalImage(ButtonSprite::create("Redeem", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+                
+                std::string err = "Invalid code.";
+                if (res->json().isOk()) err = res->json().unwrap()["error"].as<std::string>().unwrapOr(err);
+                FLAlertLayer::create("Error", err.c_str(), "OK")->show();
             }
-            else {
-                std::string errorMsg = "An unknown error occurred.";
-                if (res->json().isOk()) {
-                    errorMsg = res->json().unwrap()["error"].as<std::string>().unwrapOr("Invalid request.");
-                }
-                FLAlertLayer::create("Error", errorMsg.c_str(), "OK")->show();
-                this->onClose(nullptr);
-            }
-        }
-        else if (e->isCancelled()) {
-            log::error("[Streak!]: Connection Error or task cancelled.");
-            FLAlertLayer::create("Error", "Could not connect to the server.", "OK")->show();
-            this->onClose(nullptr);
-        }
-    }
-
-    void showLoading() {
-        if (m_isRequesting) return;
-        m_isRequesting = true;
-
-        m_okBtn->setEnabled(false);
-        m_textInput->getInputNode()->setTouchEnabled(false);
-
-        if (m_textInput->getInputNode()->m_textField) {
-            m_textInput->getInputNode()->m_textField->setOpacity(100);
-        }
-        m_loadingCircle = LoadingCircle::create();
-        this->addChild(m_loadingCircle);
-        m_loadingCircle->show();
-    }
-
-    void hideLoading() {
-        m_isRequesting = false;
-
-        if (m_loadingCircle) {
-
-            m_loadingCircle->removeFromParent();
-
-
-            m_loadingCircle = nullptr;
-        }
-        m_okBtn->setEnabled(true);
-        m_textInput->getInputNode()->setTouchEnabled(true);
-        if (m_textInput->getInputNode()->m_textField) {
-            m_textInput->getInputNode()->m_textField->setOpacity(255);
+        } else {
+             // ERROR RED: Restaurar botón
+             m_redeemBtn->setEnabled(true);
+             m_redeemBtn->setNormalImage(ButtonSprite::create("Redeem", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f));
+             FLAlertLayer::create("Error", "Connection failed.", "OK")->show();
         }
     }
 
 public:
     static RedeemCodePopup* create() {
         auto ret = new RedeemCodePopup();
-        if (ret && ret->initAnchored(340.f, 160.f)) {
-            ret->autorelease();
-            return ret;
+        if (ret && ret->initAnchored(340.f, 180.f)) {
+            ret->autorelease(); return ret;
         }
-        CC_SAFE_DELETE(ret);
-        return nullptr;
+        CC_SAFE_DELETE(ret); return nullptr;
     }
 };
 
@@ -3072,6 +3338,152 @@ CCAction* createShakeAction(float duration, float strength) {
     return CCSequence::create(shake);
 }
 
+class BanUserPopup : public Popup<> {
+protected:
+    TextInput* m_idInput;
+    TextInput* m_reasonInput;
+    EventListener<web::WebTask> m_banListener;
+    CCMenu* m_buttonMenu = nullptr;
+
+    bool setup() override {
+        this->setTitle("Moderation Tool");
+        auto winSize = m_mainLayer->getContentSize();
+
+        m_idInput = TextInput::create(200.f, "Target Account ID", "chatFont.fnt");
+        m_idInput->setPosition({ winSize.width / 2, winSize.height / 2 + 35.f });
+        m_idInput->setFilter("0123456789"); // Solo permite números
+        m_mainLayer->addChild(m_idInput);
+
+        m_reasonInput = TextInput::create(200.f, "Ban Reason (Optional for Unban)", "chatFont.fnt");
+        m_reasonInput->setPosition({ winSize.width / 2, winSize.height / 2 - 15.f });
+        m_reasonInput->setMaxCharCount(100);
+        m_mainLayer->addChild(m_reasonInput);
+
+        m_buttonMenu = CCMenu::create();
+        m_buttonMenu->setPosition({ winSize.width / 2, 40.f });
+        m_mainLayer->addChild(m_buttonMenu);
+
+        auto banSpr = ButtonSprite::create("BAN", 0, 0, "goldFont.fnt", "GJ_button_06.png", 0, 0.8f);
+        auto banBtn = CCMenuItemSpriteExtra::create(banSpr, this, menu_selector(BanUserPopup::onExecuteBan));
+        m_buttonMenu->addChild(banBtn);
+
+        auto unbanSpr = ButtonSprite::create("UNBAN", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 0.8f);
+        auto unbanBtn = CCMenuItemSpriteExtra::create(unbanSpr, this, menu_selector(BanUserPopup::onExecuteUnban));
+        m_buttonMenu->addChild(unbanBtn);
+
+        m_buttonMenu->alignItemsHorizontallyWithPadding(20.f);
+
+        m_banListener.bind(this, &BanUserPopup::onWebResponse);
+        return true;
+    }
+
+    void onExecuteBan(CCObject*) {
+        std::string targetIDStr = m_idInput->getString();
+        std::string reason = m_reasonInput->getString();
+
+        if (targetIDStr.empty()) {
+            Notification::create("Target ID is empty!", NotificationIcon::Error)->show();
+            return;
+        }
+        if (reason.empty()) {
+            Notification::create("Ban Reason is required!", NotificationIcon::Error)->show();
+            return;
+        }
+
+        // Validación extra para asegurar que solo contiene dígitos
+        if (!std::all_of(targetIDStr.begin(), targetIDStr.end(), ::isdigit)) {
+            Notification::create("Invalid ID format!", NotificationIcon::Error)->show();
+            return;
+        }
+
+        createQuickPopup("Confirm Ban", "Are you sure you want to <cr>BAN</c> this user?", "Cancel", "BAN",
+            [this, targetIDStr, reason](FLAlertLayer*, bool btn2) {
+                if (btn2) this->sendRequest("ban", targetIDStr, reason);
+            }
+        );
+    }
+
+    void onExecuteUnban(CCObject*) {
+        std::string targetIDStr = m_idInput->getString();
+        if (targetIDStr.empty()) {
+            Notification::create("Account ID required!", NotificationIcon::Error)->show();
+            return;
+        }
+        // Validación extra
+        if (!std::all_of(targetIDStr.begin(), targetIDStr.end(), ::isdigit)) {
+            Notification::create("Invalid ID format!", NotificationIcon::Error)->show();
+            return;
+        }
+
+        createQuickPopup("Confirm Unban", "Are you sure you want to <cg>UNBAN</c> this user?", "Cancel", "UNBAN",
+            [this, targetIDStr](FLAlertLayer*, bool btn2) {
+                if (btn2) this->sendRequest("unban", targetIDStr, "");
+            }
+        );
+    }
+
+    void sendRequest(std::string endpoint, std::string targetIDStr, std::string reason) {
+        m_buttonMenu->setEnabled(false);
+
+        int targetID;
+        try {
+            targetID = std::stoi(targetIDStr);
+        }
+        catch (...) {
+            Notification::create("Invalid ID number!", NotificationIcon::Error)->show();
+            m_buttonMenu->setEnabled(true);
+            return;
+        }
+
+        auto am = GJAccountManager::sharedState();
+        matjson::Value payload = matjson::Value::object();
+        payload.set("modAccountID", am->m_accountID);
+        payload.set("targetAccountID", targetID);
+        if (!reason.empty()) payload.set("reason", reason);
+
+        auto req = web::WebRequest();
+        std::string url = fmt::format("https://streak-servidor.onrender.com/{}", endpoint);
+        m_banListener.setFilter(req.bodyJSON(payload).post(url));
+    }
+
+    void onWebResponse(web::WebTask::Event* e) {
+        if (!e->getValue() && !e->isCancelled()) return;
+        if (m_buttonMenu) m_buttonMenu->setEnabled(true);
+
+        if (web::WebResponse* res = e->getValue()) {
+            if (res->ok()) {
+                // Intentar leer mensaje de éxito del servidor si existe
+                std::string successMsg = "Action completed successfully!";
+                if (res->json().isOk()) {
+                    successMsg = res->json().unwrap()["message"].as<std::string>().unwrapOr(successMsg);
+                }
+                Notification::create(successMsg.c_str(), NotificationIcon::Success)->show();
+                this->onClose(nullptr);
+            }
+            else {
+                // Intentar leer el mensaje de error del JSON
+                std::string errorMsg = fmt::format("Error: Server returned {}", res->code());
+                if (res->json().isOk()) {
+                    errorMsg = res->json().unwrap()["error"].as<std::string>().unwrapOr(errorMsg);
+                }
+                Notification::create(errorMsg.c_str(), NotificationIcon::Error)->show();
+            }
+        }
+        else if (e->isCancelled()) {
+            Notification::create("Request cancelled.", NotificationIcon::Error)->show();
+        }
+    }
+
+public:
+    static BanUserPopup* create() {
+        auto ret = new BanUserPopup();
+        if (ret && ret->initAnchored(300.f, 260.f)) {
+            ret->autorelease(); return ret;
+        }
+        CC_SAFE_DELETE(ret); return nullptr;
+    }
+};
+
 
 class SendMessagePopup : public Popup<> {
 protected:
@@ -3081,6 +3493,7 @@ protected:
     CCNode* m_viewLayer = nullptr;
     CCNode* m_writeLayer = nullptr;
     CCMenuItemSpriteExtra* m_toggleBtn = nullptr;
+    CCMenuItemSpriteExtra* m_banBtn = nullptr; // NUEVO: Referencia al botón de ban
     TextInput* m_textInput = nullptr;
     CCMenuItemSpriteExtra* m_sendBtn = nullptr;
     LoadingCircle* m_loadingCircle = nullptr;
@@ -3089,18 +3502,15 @@ protected:
     bool m_isSending = false;
     ScrollLayer* m_scrollLayer = nullptr;
     long long m_newestMessageTime = 0;
-
-    // 0 = Ninguno, 1=Rojo, 2=Naranja, etc.
     int m_activeColorTag = 0;
 
     bool setup() override {
         this->setTitle("Advertisements");
         auto winSize = m_mainLayer->getContentSize();
 
-        // ... (código de visualización y escritura igual que antes) ...
+        // --- CAPA DE VISUALIZACIÓN ---
         m_viewLayer = CCNode::create();
         m_viewLayer->setContentSize(winSize);
-        m_viewLayer->setPosition({ 0,0 });
         m_mainLayer->addChild(m_viewLayer);
 
         auto scrollSize = CCSize(300.f, 140.f);
@@ -3115,6 +3525,7 @@ protected:
         bg->setPosition(winSize / 2 + CCPoint{ 0, 10.f });
         m_viewLayer->addChild(bg, -1);
 
+        // --- CAPA DE ESCRITURA ---
         m_writeLayer = CCNode::create();
         m_writeLayer->setVisible(false);
         m_mainLayer->addChild(m_writeLayer);
@@ -3125,299 +3536,166 @@ protected:
         m_textInput->setFilter(" abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?'\"-()@#&<>\\/");
         m_writeLayer->addChild(m_textInput);
 
-        // --- BARRA DE HERRAMIENTAS MODIFICADA ---
+        // Herramientas de color y texto
         auto toolsMenu = CCMenu::create();
         toolsMenu->setPosition({ winSize.width / 2, winSize.height / 2 + 35.f });
         m_writeLayer->addChild(toolsMenu);
 
-        // Añadimos el string de la etiqueta a la estructura
         struct ColorDef { ccColor3B color; int tag; std::string labelStr; };
         std::vector<ColorDef> colors = {
-            {{255, 80, 80}, 1, "cr"},   // Rojo
-            {{255, 160, 50}, 2, "co"},  // Naranja
-            {{255, 255, 0}, 3, "cy"},   // Amarillo
-            {{80, 255, 80}, 4, "cg"},   // Verde
-            {{0, 4, 168}, 5, "cb"},     // Azul
-            {{255, 120, 255}, 6, "cp"}  // Rosa
+            {{255, 80, 80}, 1, "cr"}, {{255, 160, 50}, 2, "co"}, {{255, 255, 0}, 3, "cy"},
+            {{80, 255, 80}, 4, "cg"}, {{0, 4, 168}, 5, "cb"}, {{255, 120, 255}, 6, "cp"}
         };
-
         float startX = -((colors.size() + 2) * 25.f) / 2.f + 12.5f;
-
         for (int i = 0; i < colors.size(); ++i) {
             auto spr = CCSprite::createWithSpriteFrameName("GJ_colorBtn_001.png");
             spr->setScale(0.5f);
             spr->setColor(colors[i].color);
-
             auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(SendMessagePopup::onColorClicked));
             btn->setTag(colors[i].tag);
             btn->setPosition({ startX + i * 25.f, 0 });
             toolsMenu->addChild(btn);
-
-            
             auto label = CCLabelBMFont::create(colors[i].labelStr.c_str(), "goldFont.fnt");
             label->setScale(0.4f);
-           
             label->setPosition({ startX + i * 25.f, 15.f });
-          
             label->setOpacity(200);
             toolsMenu->addChild(label);
         }
-
         float buttonsX = startX + colors.size() * 25.f + 15.f;
+        auto enterBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("NL", 20, 0, 0.4f, true, "goldFont.fnt", "GJ_button_01.png", 30.f), this, menu_selector(SendMessagePopup::onNewLine));
+        enterBtn->setPosition({ buttonsX, 0 }); enterBtn->setScale(0.8f); toolsMenu->addChild(enterBtn);
+        auto prevBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("Pre", 25, 0, 0.4f, true, "goldFont.fnt", "GJ_button_01.png", 30.f), this, menu_selector(SendMessagePopup::onPreview));
+        prevBtn->setPosition({ buttonsX + 35.f, 0 }); prevBtn->setScale(0.8f); toolsMenu->addChild(prevBtn);
 
-       
-        auto enterSpr = ButtonSprite::create("NL", 20, 0, 0.4f, true, "goldFont.fnt", "GJ_button_01.png", 30.f);
-        enterSpr->setScale(0.8f);
-        auto enterBtn = CCMenuItemSpriteExtra::create(enterSpr, this, menu_selector(SendMessagePopup::onNewLine));
-        enterBtn->setPosition({ buttonsX, 0 });
-        toolsMenu->addChild(enterBtn);
-
-        auto prevSpr = ButtonSprite::create("Pre", 25, 0, 0.4f, true, "goldFont.fnt", "GJ_button_01.png", 30.f);
-        prevSpr->setScale(0.8f);
-        auto prevBtn = CCMenuItemSpriteExtra::create(prevSpr, this, menu_selector(SendMessagePopup::onPreview));
-        prevBtn->setPosition({ buttonsX + 35.f, 0 });
-        toolsMenu->addChild(prevBtn);
-
-        auto sendSpr = ButtonSprite::create("Send", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 0.8f);
-        m_sendBtn = CCMenuItemSpriteExtra::create(sendSpr, this, menu_selector(SendMessagePopup::onSend));
-
-        auto clearSpr = CCSprite::createWithSpriteFrameName("GJ_trashBtn_001.png");
-        clearSpr->setScale(0.7f);
-        auto clearBtn = CCMenuItemSpriteExtra::create(clearSpr, this, menu_selector(SendMessagePopup::onClearText));
-
+        m_sendBtn = CCMenuItemSpriteExtra::create(ButtonSprite::create("Send", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 0.8f), this, menu_selector(SendMessagePopup::onSend));
+        auto clearBtn = CCMenuItemSpriteExtra::create(CCSprite::createWithSpriteFrameName("GJ_trashBtn_001.png"), this, menu_selector(SendMessagePopup::onClearText));
+        clearBtn->setScale(0.7f);
         auto sendMenu = CCMenu::create();
-        sendMenu->addChild(clearBtn);
-        sendMenu->addChild(m_sendBtn);
+        sendMenu->addChild(clearBtn); sendMenu->addChild(m_sendBtn);
         sendMenu->alignItemsHorizontallyWithPadding(10.f);
         sendMenu->setPosition({ winSize.width / 2, 40.f });
         m_writeLayer->addChild(sendMenu);
 
-       
+        // --- HERRAMIENTAS DE MODERADOR ---
         if (g_streakData.userRole >= 1) {
-       
             auto editSpr = CCSprite::createWithSpriteFrameName("GJ_chatBtn_001.png");
             editSpr->setScale(0.8f);
             m_toggleBtn = CCMenuItemSpriteExtra::create(editSpr, this, menu_selector(SendMessagePopup::onToggleMode));
-            auto toggleMenu = CCMenu::createWithItem(m_toggleBtn);
-            toggleMenu->setPosition({ winSize.width - 30.f, 30.f });
-            m_mainLayer->addChild(toggleMenu, 10);
+
+            auto hammerSpr = CCSprite::createWithSpriteFrameName("GJ_reportBtn_001.png");
+            hammerSpr->setScale(0.8f);
+            m_banBtn = CCMenuItemSpriteExtra::create(hammerSpr, this, menu_selector(SendMessagePopup::onOpenBanTool));
+
+            auto modMenu = CCMenu::create();
+            modMenu->addChild(m_banBtn);
+            modMenu->addChild(m_toggleBtn);
+
+            // Alineación horizontal con poca separación (8.f)
+            // Alineación horizontal con poca separación (8.f)
+            modMenu->alignItemsHorizontallyWithPadding(8.f);
+
+            // POSICIÓN CORREGIDA:
+            // winSize.width / 2 + 135.f -> Los mueve a la izquierda (antes era +165.f)
+            // winSize.height / 2 - 80.f -> Los sube un poco (antes era -100.f)
+            modMenu->setPosition({ winSize.width / 2 + 135.f, winSize.height / 2 - 90.f });
+
+            m_mainLayer->addChild(modMenu, 10);
         }
 
         m_sendListener.bind(this, &SendMessagePopup::onWebResponse);
         m_loadListener.bind(this, &SendMessagePopup::onLoadResponse);
-
         this->loadMessages();
         return true;
     }
 
-  
-    void onClearText(CCObject*) {
-        if (m_textInput) {
-            m_textInput->setString("");
-        }
-    }
-
-    void insertText(std::string text) {
-        if (m_textInput) {
-            std::string current = m_textInput->getString();
-            m_textInput->setString(current + text);
-        }
-    }
-
-    void onColorClicked(CCObject* sender) {
-        int tagIdx = sender->getTag();
-
-        // Si pulsamos el MISMO color que ya esta abierto -> CERRAR
-        if (m_activeColorTag == tagIdx) {
-            insertText("</c>");
-            m_activeColorTag = 0; // Ninguno activo
-        }
-        // Si pulsamos OTRO color -> ABRIR (y opcionalmente cerrar el anterior si quieres)
-        else {
-            if (m_activeColorTag != 0) {
-                insertText("</c>"); // Cierra el anterior automaticamente si habia uno
-            }
-
-            std::string tag = "";
-            switch (tagIdx) {
-            case 1: tag = "<cr>"; break; // Rojo
-            case 2: tag = "<co>"; break; // Naranja
-            case 3: tag = "<cy>"; break; // Amarillo
-            case 4: tag = "<cg>"; break; // Verde
-            case 5: tag = "<cb>"; break; // Azul
-            case 6: tag = "<cp>"; break; // Rosa
-            }
-            insertText(tag);
-            m_activeColorTag = tagIdx; // Recordar cual esta abierto
-        }
-    }
-
-    void onNewLine(CCObject*) {
-        insertText("\\n");
-    }
-
-    void onPreview(CCObject*) {
-        std::string text = m_textInput->getString();
-        if (text.empty()) text = " ";
-        std::string processed = text;
-        size_t pos = 0;
-        while ((pos = processed.find("\\n", pos)) != std::string::npos) {
-            processed.replace(pos, 2, "\n");
-            pos += 1;
-        }
-        FLAlertLayer::create("Preview", processed, "OK")->show();
-    }
-
-    void loadMessages() {
-        if (!m_loadingCircle) {
-            m_loadingCircle = LoadingCircle::create();
-            m_loadingCircle->show();
-            m_mainLayer->addChild(m_loadingCircle, 99);
-        }
-        auto req = web::WebRequest();
-        m_loadListener.setFilter(req.get("https://streak-servidor.onrender.com/messages"));
-    }
-
-    void onLoadResponse(web::WebTask::Event* e) {
-        if (!e->getValue() && !e->isCancelled()) return;
-        if (m_loadingCircle) { m_loadingCircle->fadeAndRemove(); m_loadingCircle = nullptr; }
-
-        if (web::WebResponse* res = e->getValue()) {
-            if (res->ok() && res->json().isOk()) {
-                auto data = res->json().unwrap();
-                if (data.isArray()) {
-                    this->populateMessages(data.as<std::vector<matjson::Value>>().unwrap());
-                }
-            }
-            else {
-                auto errLabel = CCLabelBMFont::create("Failed to load messages.", "goldFont.fnt");
-                errLabel->setScale(0.5f);
-                errLabel->setPosition(m_scrollLayer->getContentSize() / 2);
-                m_scrollLayer->m_contentLayer->addChild(errLabel);
-            }
-        }
-    }
-
-    void populateMessages(const std::vector<matjson::Value>& messages) {
-        m_scrollLayer->m_contentLayer->removeAllChildren();
-        float totalHeight = 15.f;
-        std::vector<CCNode*> msgNodes;
-
-        for (const auto& msgData : messages) {
-            std::string username = msgData["username"].as<std::string>().unwrapOr("Unknown");
-            std::string content = msgData["content"].as<std::string>().unwrapOr("...");
-            int role = msgData["role"].as<int>().unwrapOr(0);
-            long long timestamp = msgData["timestamp"].as<long long>().unwrapOr(0);
-            if (timestamp > m_newestMessageTime) m_newestMessageTime = timestamp;
-
-            size_t pos = 0;
-            while ((pos = content.find("\\n", pos)) != std::string::npos) {
-                content.replace(pos, 2, "\n");
-                pos += 1;
-            }
-
-            std::string roleTag = "";
-            std::string nameTag = "<cw>";
-
-            if (role == 2) {
-                roleTag = "<cr>[ADMIN]</c> ";
-                nameTag = "<cr>";
-            }
-            else if (role == 1) {
-                roleTag = "<co>[MOD]</c> ";
-                nameTag = "<co>";
-            }
-
-            std::string fullText = fmt::format("{0}{1}{2}</c>: {3}", roleTag, nameTag, username, content);
-            auto textArea = TextArea::create(fullText, "chatFont.fnt", 0.6f, 270.f, { 0, 1 }, 8.f, false);
-            textArea->setColor({ 255, 255, 255 });
-
-            msgNodes.push_back(textArea);
-            totalHeight += textArea->getContentSize().height + 10.f;
-        }
-
-        float scrollHeight = std::max(m_scrollLayer->getContentSize().height, totalHeight);
-        m_scrollLayer->m_contentLayer->setContentSize({ 300.f, scrollHeight });
-
-        float currentY = scrollHeight - 10.f;
-        for (auto* node : msgNodes) {
-            node->setAnchorPoint({ 0.f, 1.f });
-            node->setPosition({ 15.f, currentY });
-            m_scrollLayer->m_contentLayer->addChild(node);
-            currentY -= (node->getContentSize().height + 10.f);
-        }
-
-        if (m_newestMessageTime > 0) {
-            // --- CORRECCIÓN PARA MACOS ARM64 ---
-            // Usamos el sistema de guardado de Geode en lugar de CCUserDefault
-            Mod::get()->setSavedValue<double>("streak_last_chat_time", (double)m_newestMessageTime);
-        }
+    void onOpenBanTool(CCObject*) {
+        BanUserPopup::create()->show();
     }
 
     void onToggleMode(CCObject*) {
         m_currentMode = (m_currentMode == Mode::View) ? Mode::Write : Mode::View;
         m_viewLayer->setVisible(m_currentMode == Mode::View);
         m_writeLayer->setVisible(m_currentMode == Mode::Write);
-        this->setTitle(m_currentMode == Mode::View ? "Global Chat" : "Write Message");
+        this->setTitle(m_currentMode == Mode::View ? "Advertisements" : "Write Message");
+
         if (m_currentMode == Mode::View) {
             this->loadMessages();
+            // Mostrar botón de ban en modo View
+            if (m_banBtn) m_banBtn->setVisible(true);
         }
         else {
-            m_activeColorTag = 0; 
+            m_activeColorTag = 0;
+            // Ocultar botón de ban en modo Write
+            if (m_banBtn) m_banBtn->setVisible(false);
         }
     }
 
+    void onClearText(CCObject*) { if (m_textInput) m_textInput->setString(""); }
+    void insertText(std::string text) { if (m_textInput) m_textInput->setString(m_textInput->getString() + text); }
+    void onColorClicked(CCObject* sender) {
+        int tagIdx = sender->getTag();
+        if (m_activeColorTag == tagIdx) { insertText("</c>"); m_activeColorTag = 0; }
+        else {
+            if (m_activeColorTag != 0) insertText("</c>");
+            std::string tag = "";
+            switch (tagIdx) { case 1: tag = "<cr>"; break; case 2: tag = "<co>"; break; case 3: tag = "<cy>"; break; case 4: tag = "<cg>"; break; case 5: tag = "<cb>"; break; case 6: tag = "<cp>"; break; }
+                                    insertText(tag); m_activeColorTag = tagIdx;
+        }
+    }
+    void onNewLine(CCObject*) { insertText("\\n"); }
+    void onPreview(CCObject*) {
+        std::string text = m_textInput->getString(); if (text.empty()) text = " ";
+        std::string processed = text; size_t pos = 0; while ((pos = processed.find("\\n", pos)) != std::string::npos) { processed.replace(pos, 2, "\n"); pos += 1; }
+        FLAlertLayer::create("Preview", processed, "OK")->show();
+    }
+    void loadMessages() {
+        if (!m_loadingCircle) { m_loadingCircle = LoadingCircle::create(); m_loadingCircle->show(); m_mainLayer->addChild(m_loadingCircle, 99); }
+        auto req = web::WebRequest(); m_loadListener.setFilter(req.get("https://streak-servidor.onrender.com/messages"));
+    }
+    void onLoadResponse(web::WebTask::Event* e) {
+        if (!e->getValue() && !e->isCancelled()) return;
+        if (m_loadingCircle) { m_loadingCircle->fadeAndRemove(); m_loadingCircle = nullptr; }
+        if (web::WebResponse* res = e->getValue()) {
+            if (res->ok() && res->json().isOk()) { auto data = res->json().unwrap(); if (data.isArray()) this->populateMessages(data.as<std::vector<matjson::Value>>().unwrap()); }
+            else { auto errLabel = CCLabelBMFont::create("Failed to load messages.", "goldFont.fnt"); errLabel->setScale(0.5f); errLabel->setPosition(m_scrollLayer->getContentSize() / 2); m_scrollLayer->m_contentLayer->addChild(errLabel); }
+        }
+    }
+    void populateMessages(const std::vector<matjson::Value>& messages) {
+        m_scrollLayer->m_contentLayer->removeAllChildren(); float totalHeight = 20.f; std::vector<CCNode*> msgNodes;
+        for (const auto& msgData : messages) {
+            std::string username = msgData["username"].as<std::string>().unwrapOr("Unknown"); std::string content = msgData["content"].as<std::string>().unwrapOr("..."); int role = msgData["role"].as<int>().unwrapOr(0); long long timestamp = msgData["timestamp"].as<long long>().unwrapOr(0); if (timestamp > m_newestMessageTime) m_newestMessageTime = timestamp;
+            size_t pos = 0; while ((pos = content.find("\\n", pos)) != std::string::npos) { content.replace(pos, 2, "\n"); pos += 1; }
+            std::string roleTag = "", nameTag = "<cw>"; if (role == 2) { roleTag = "<cr>[ADMIN]</c> "; nameTag = "<cr>"; }
+            else if (role == 1) { roleTag = "<co>[MOD]</c> "; nameTag = "<co>"; }
+            auto textArea = TextArea::create(fmt::format("{0}{1}{2}</c>: {3}", roleTag, nameTag, username, content), "chatFont.fnt", 0.6f, 270.f, { 0, 1 }, 8.f, false); textArea->setColor({ 255, 255, 255 });
+            msgNodes.push_back(textArea); totalHeight += textArea->getContentSize().height + 25.f;
+        }
+        float scrollHeight = std::max(m_scrollLayer->getContentSize().height, totalHeight); m_scrollLayer->m_contentLayer->setContentSize({ 300.f, scrollHeight }); float currentY = scrollHeight - 15.f;
+        for (auto* node : msgNodes) { node->setAnchorPoint({ 0.f, 1.f }); node->setPosition({ 15.f, currentY }); m_scrollLayer->m_contentLayer->addChild(node); currentY -= (node->getContentSize().height + 25.f); }
+        if (m_newestMessageTime > 0) Mod::get()->setSavedValue<double>("streak_last_chat_time", (double)m_newestMessageTime);
+    }
     void onSend(CCObject*) {
         if (m_isSending) return;
-        if (g_streakData.userRole == 1 && g_streakData.dailyMsgCount >= 3) {
-            FLAlertLayer::create("Limit Reached", "Daily limit reached (3/3).", "OK")->show();
-            return;
-        }
-        std::string msg = m_textInput->getString();
-        if (msg.length() < 1) { FLAlertLayer::create("Error", "Message empty.", "OK")->show(); return; }
-
-        m_isSending = true;
-        if (m_sendBtn) m_sendBtn->setEnabled(false);
-
-        auto am = GJAccountManager::sharedState();
-        matjson::Value payload = matjson::Value::object();
-        payload.set("accountID", am->m_accountID);
-        payload.set("username", std::string(am->m_username));
-        payload.set("content", msg);
-
-        auto req = web::WebRequest();
-        m_sendListener.setFilter(req.bodyJSON(payload).post("https://streak-servidor.onrender.com/messages"));
+        if (g_streakData.userRole == 1 && g_streakData.dailyMsgCount >= 3) { FLAlertLayer::create("Limit Reached", "Daily limit reached (3/3).", "OK")->show(); return; }
+        std::string msg = m_textInput->getString(); if (msg.length() < 1) { FLAlertLayer::create("Error", "Message empty.", "OK")->show(); return; }
+        m_isSending = true; if (m_sendBtn) m_sendBtn->setEnabled(false);
+        auto am = GJAccountManager::sharedState(); matjson::Value payload = matjson::Value::object(); payload.set("accountID", am->m_accountID); payload.set("username", std::string(am->m_username)); payload.set("content", msg);
+        auto req = web::WebRequest(); m_sendListener.setFilter(req.bodyJSON(payload).post("https://streak-servidor.onrender.com/messages"));
     }
-
     void onWebResponse(web::WebTask::Event* e) {
-        if (!e->getValue() && !e->isCancelled()) return;
-        m_isSending = false;
-        if (m_sendBtn) m_sendBtn->setEnabled(true);
-
-        if (web::WebResponse* res = e->getValue()) {
-            if (res->ok()) {
-                if (g_streakData.userRole == 1) { g_streakData.dailyMsgCount++; g_streakData.save(); }
-                m_textInput->setString("");
-                this->onToggleMode(nullptr);
-            }
-            else {
-                FLAlertLayer::create("Error", fmt::format("Failed: {}", res->code()), "OK")->show();
-            }
-        }
+        if (!e->getValue() && !e->isCancelled()) return; m_isSending = false; if (m_sendBtn) m_sendBtn->setEnabled(true);
+        if (web::WebResponse* res = e->getValue()) { if (res->ok()) { if (g_streakData.userRole == 1) { g_streakData.dailyMsgCount++; g_streakData.save(); } m_textInput->setString(""); this->onToggleMode(nullptr); } else { FLAlertLayer::create("Error", fmt::format("Failed: {}", res->code()), "OK")->show(); } }
     }
 
 public:
     static SendMessagePopup* create() {
         auto ret = new SendMessagePopup();
         if (ret && ret->initAnchored(360.f, 240.f)) {
-            ret->autorelease();
-            return ret;
+            ret->autorelease(); return ret;
         }
-        CC_SAFE_DELETE(ret);
-        return nullptr;
+        CC_SAFE_DELETE(ret); return nullptr;
     }
 };
-
 
 
 
@@ -3457,12 +3735,69 @@ protected:
     CCLabelBMFont* m_barText = nullptr;
     CCSprite* m_rachaIndicator = nullptr;
 
+    // NUEVO: Callback para crear el perfil manualmente
+    void onCreateProfile(CCObject*) {
+        auto am = GJAccountManager::sharedState();
+        if (!am || am->m_accountID == 0) {
+            FLAlertLayer::create("Error", "Invalid account data. Please log in again.", "OK")->show();
+            return;
+        }
+
+        // --- FIX CRÍTICO: FORZAR LIMPIEZA ANTES DE CREAR ---
+        g_streakData.resetToDefault(); // <--- ESTO BORRA CUALQUIER DATO ANTIGUO EN MEMORIA
+        // ---------------------------------------------------
+
+        g_streakData.needsRegistration = false;
+        g_streakData.dailyUpdate();   // Inicia el día actual en 0
+        updatePlayerDataInFirebase(); // Guarda el perfil limpio en el servidor
+
+        this->onClose(nullptr);
+        FLAlertLayer::create("Success", "Profile created! Please open the menu again.", "OK")->show();
+    }
+
     bool setup() override {
+        // ESTADO 1: NO LOGUEADO EN GEOMETRY DASH
+        auto am = GJAccountManager::sharedState();
+        if (!am || am->m_accountID == 0) {
+            this->setTitle("Error");
+            auto winSize = m_mainLayer->getContentSize();
+
+            auto errorLabel = CCLabelBMFont::create("Please log in to\nGeometry Dash first!", "bigFont.fnt");
+            errorLabel->setAlignment(CCTextAlignment::kCCTextAlignmentCenter);
+            errorLabel->setScale(0.5f);
+            errorLabel->setPosition(winSize / 2);
+            errorLabel->setColor({ 255, 100, 100 });
+            m_mainLayer->addChild(errorLabel);
+            return true;
+        }
+
+        // ESTADO 2: NECESITA REGISTRO (BOTÓN "CREATE PROFILE")
+        if (g_streakData.needsRegistration) {
+            this->setTitle("Welcome!");
+            auto winSize = m_mainLayer->getContentSize();
+
+            auto infoLabel = CCLabelBMFont::create("Join the Streak Mod!", "goldFont.fnt");
+            infoLabel->setPosition({ winSize.width / 2, winSize.height / 2 + 25.f });
+            infoLabel->setScale(0.7f);
+            m_mainLayer->addChild(infoLabel);
+
+            auto createBtn = CCMenuItemSpriteExtra::create(
+                ButtonSprite::create("Create Profile", 0, 0, "goldFont.fnt", "GJ_button_01.png", 0, 1.0f),
+                this,
+                menu_selector(InfoPopup::onCreateProfile)
+            );
+            auto menu = CCMenu::createWithItem(createBtn);
+            menu->setPosition({ winSize.width / 2, winSize.height / 2 - 35.f });
+            m_mainLayer->addChild(menu);
+
+            return true;
+        }
+
+        // ESTADO 3: USUARIO NORMAL (TU CÓDIGO ORIGINAL)
         this->setTitle("My Streak");
         auto winSize = m_mainLayer->getContentSize();
         float centerY = winSize.height / 2 + 25;
 
-        // --- Indicador de Racha (Sprite flotante) ---
         auto rachaSprite = CCSprite::create(g_streakData.getRachaSprite().c_str());
         if (rachaSprite) {
             rachaSprite->setScale(0.4f);
@@ -3477,7 +3812,6 @@ protected:
             )));
         }
 
-        // --- Texto y Barra de Progreso ---
         m_streakLabel = CCLabelBMFont::create("Daily streak: ?", "goldFont.fnt");
         m_streakLabel->setScale(0.55f);
         m_streakLabel->setPosition({ winSize.width / 2, centerY - 60 });
@@ -3516,7 +3850,6 @@ protected:
         m_rachaIndicator->setPosition({ winSize.width / 2 + barWidth / 2 + 20, centerY - 82 });
         m_mainLayer->addChild(m_rachaIndicator, 5);
 
-        // --- Menú de Esquinas (Rewards, Missions, Stats, Roulette, Info) ---
         auto cornerMenu = CCMenu::create();
         cornerMenu->setPosition(0, 0);
         m_mainLayer->addChild(cornerMenu, 10);
@@ -3541,69 +3874,47 @@ protected:
         auto infoBtn = CCMenuItemSpriteExtra::create(infoIcon, this, menu_selector(InfoPopup::onInfo));
         infoBtn->setPosition({ winSize.width - 20, winSize.height - 20 }); cornerMenu->addChild(infoBtn);
 
-        // --- Menú Inferior (Bottom Menu) ---
         auto bottomMenu = CCMenu::create();
         m_mainLayer->addChild(bottomMenu, 10);
 
-        // 1. Evento (NUEVO LUGAR)
         auto eventIcon = CCSprite::create("event_boton.png"_spr);
-        if (!eventIcon || eventIcon->getContentSize().width == 0) {
-            eventIcon = CCSprite::createWithSpriteFrameName("GJ_top100Btn_001.png");
-        }
+        if (!eventIcon || eventIcon->getContentSize().width == 0) eventIcon = CCSprite::createWithSpriteFrameName("GJ_top100Btn_001.png");
         eventIcon->setScale(0.7f);
-        auto eventBtn = CCMenuItemSpriteExtra::create(eventIcon, this, menu_selector(InfoPopup::onOpenEvent));
-        bottomMenu->addChild(eventBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(eventIcon, this, menu_selector(InfoPopup::onOpenEvent)));
 
-        // 2. Historial
         auto historyIcon = CCSprite::create("historial_btn.png"_spr); historyIcon->setScale(0.7f);
-        auto historyBtn = CCMenuItemSpriteExtra::create(historyIcon, this, menu_selector(InfoPopup::onOpenHistory));
-        bottomMenu->addChild(historyBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(historyIcon, this, menu_selector(InfoPopup::onOpenHistory)));
 
-        // 3. Niveles
         auto levelProgIcon = CCSprite::create("level_progess_btn.png"_spr);
         if (!levelProgIcon) levelProgIcon = ButtonSprite::create("Lvls"); else levelProgIcon->setScale(0.7f);
-        auto levelProgBtn = CCMenuItemSpriteExtra::create(levelProgIcon, this, menu_selector(InfoPopup::onOpenLevelProgress));
-        bottomMenu->addChild(levelProgBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(levelProgIcon, this, menu_selector(InfoPopup::onOpenLevelProgress)));
 
-        // 4. Top
         auto topIcon = CCSprite::create("top_btn.png"_spr);
         if (!topIcon) topIcon = ButtonSprite::create("Top"); else topIcon->setScale(0.7f);
-        auto topBtn = CCMenuItemSpriteExtra::create(topIcon, this, menu_selector(InfoPopup::onOpenLeaderboard));
-        bottomMenu->addChild(topBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(topIcon, this, menu_selector(InfoPopup::onOpenLeaderboard)));
 
-        // 5. Mensajes
         auto msgIcon = CCSprite::create("msm.png"_spr);
         if (!msgIcon) msgIcon = CCSprite::createWithSpriteFrameName("GJ_chatBtn_001.png");
         msgIcon->setScale(0.7f);
-        auto msgBtn = CCMenuItemSpriteExtra::create(msgIcon, this, menu_selector(InfoPopup::onOpenMessages));
-        bottomMenu->addChild(msgBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(msgIcon, this, menu_selector(InfoPopup::onOpenMessages)));
 
-        // 6. Canjear Código
         auto redeemIcon = CCSprite::create("redemcode_btn.png"_spr); redeemIcon->setScale(0.7f);
-        auto redeemBtn = CCMenuItemSpriteExtra::create(redeemIcon, this, menu_selector(InfoPopup::onRedeemCode));
-        bottomMenu->addChild(redeemBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(redeemIcon, this, menu_selector(InfoPopup::onRedeemCode)));
 
-        // 7. Donar
         auto kofiIcon = CCSprite::create("ko-fi_btn.png"_spr);
         if (!kofiIcon) kofiIcon = ButtonSprite::create("Donate"); else kofiIcon->setScale(0.7f);
-        auto kofiBtn = CCMenuItemSpriteExtra::create(kofiIcon, this, menu_selector(InfoPopup::onOpenDonations));
-        bottomMenu->addChild(kofiBtn);
+        bottomMenu->addChild(CCMenuItemSpriteExtra::create(kofiIcon, this, menu_selector(InfoPopup::onOpenDonations)));
 
-        // Alineación del menú inferior
         bottomMenu->alignItemsHorizontallyWithPadding(5.0f);
         bottomMenu->setPosition({ winSize.width / 2, 25.f });
 
         this->updateDisplay();
 
-        // ASEGÚRATE DE QUE ESTA LÍNEA SEA EXACTAMENTE ASÍ:
         if (g_streakData.shouldShowAnimation()) {
             this->showStreakAnimation(g_streakData.currentStreak);
-
-            // Marcamos esta racha como "ya celebrada" y guardamos
             g_streakData.lastStreakAnimated = g_streakData.currentStreak;
             g_streakData.save();
         }
-        // ----------------------------
 
         return true;
     }

@@ -16,40 +16,31 @@
 #include <matjson.hpp>
 #include <Geode/utils/cocos.hpp>
 #include <Geode/modify/OptionsLayer.hpp>
+#include <Geode/ui/Notification.hpp> 
 
 
-/* =================================================================
- * PlayLayer (Ganar puntos con VERIFICACIÓN ANTI-CHEAT)
- * =================================================================*/
 class $modify(MyPlayLayer, PlayLayer) {
     void levelComplete() {
-        // 1. Capturar porcentaje ANTES de que el juego procese la victoria
-        // Esto sirve para saber si ya lo habías completado antes.
+     
         int percentBefore = this->m_level->m_normalPercent;
 
-        // 2. Ejecutar la lógica original del juego
-        // Esto es lo que debería guardar el progreso y poner el nivel al 100%.
-        PlayLayer::levelComplete();
-
-        // 3. Capturar porcentaje DESPUÉS de la victoria
+        
+        PlayLayer::levelComplete();     
         int percentAfter = this->m_level->m_normalPercent;
 
-        // --- VERIFICACIONES DE SEGURIDAD ---
-
-        // A) Si es modo práctica, ignorar siempre.
+        
         if (this->m_isPracticeMode) return;
 
-        // B) Anti-Farm: Si ya estaba al 100% antes de jugar, no dar puntos de nuevo.
+        
         if (percentBefore >= 100) return;
 
-        // C) Anti-Hack: Si después de "completar", el porcentaje NO llegó a 100,
-        // significa que algo raro pasó (hack de noclip, instant complete falso, etc.).
+        
         if (percentAfter < 100) {
             log::warn("⚠️ Anti-Cheat: levelComplete se ejecutó pero el porcentaje final es solo {}%", percentAfter);
             return;
         }
 
-        // --- SI LLEGAMOS AQUÍ, ES UNA VICTORIA VÁLIDA ---
+        
 
         int stars = this->m_level->m_stars;
         // Solo niveles con estrellas (rated) dan puntos
@@ -78,206 +69,187 @@ class $modify(MyPlayLayer, PlayLayer) {
 };
 
 class $modify(MyMenuLayer, MenuLayer) {
-
-    
     struct Fields {
         EventListener<web::WebTask> m_playerDataListener;
+        bool m_isReconnecting = false;
     };
+
+    enum class ButtonState { Loading, Active, Error };
 
     bool init() {
         if (!MenuLayer::init()) return false;
-        this->createLoadingButton();
 
-       
+        // ESTADO INICIAL: Cargando
+        this->createStreakButton(ButtonState::Loading);
         this->loadPlayerData();
 
         return true;
     }
 
-    void createLoadingButton() {
-        auto menu = this->getChildByID("bottom-menu");
-        if (!menu) return;
-
-        if (auto oldBtn = menu->getChildByID("streak-button"_spr)) {
-            oldBtn->removeFromParentAndCleanup(true);
+    void tryReconnect(float dt) {
+        if (g_streakData.isDataLoaded) {
+            this->unschedule(schedule_selector(MyMenuLayer::tryReconnect));
+            m_fields->m_isReconnecting = false;
+            this->createStreakButton(ButtonState::Active);
+            return;
         }
 
-        auto loadingIcon = CCSprite::createWithSpriteFrameName("GJ_updateBtn_001.png");
-        if (!loadingIcon) return;
+        // Si sigue sin cargar, volvemos a intentar y mostramos estado de carga
+        this->createStreakButton(ButtonState::Loading);
+        this->loadPlayerData();
+    }
 
-        loadingIcon->runAction(CCRepeatForever::create(CCRotateBy::create(1.0f, 360)));
-        loadingIcon->setScale(0.4f);
+    void loadPlayerData() {
+        auto accountManager = GJAccountManager::sharedState();
+        if (!accountManager || accountManager->m_accountID == 0) {
+            g_streakData.m_initialized = true;
+            g_streakData.isDataLoaded = true;
+            g_streakData.dailyUpdate();
+            this->createStreakButton(ButtonState::Active);
+            return;
+        }
 
-        auto circle = CircleButtonSprite::create(loadingIcon, CircleBaseColor::Gray, CircleBaseSize::Medium);
-        if (!circle) return;
+        m_fields->m_playerDataListener.bind([this](web::WebTask::Event* e) {
+            if (web::WebResponse* res = e->getValue()) {
+                if (res->ok() && res->json().isOk()) {
+                    g_streakData.parseServerResponse(res->json().unwrap());
+                    if (g_streakData.isBanned) {
+                        if (m_fields->m_isReconnecting) {
+                            this->unschedule(schedule_selector(MyMenuLayer::tryReconnect));
+                            m_fields->m_isReconnecting = false;
+                        }
+                        this->createStreakButton(ButtonState::Error);
+                        return;
+                    }
+                    this->onLoadSuccess();
+                }
+                else if (res->code() == 404) {
+                    g_streakData.needsRegistration = true;
+                    this->onLoadSuccess();
+                }
+                else {
+                    this->onLoadFailed();
+                }
+            }
+            else if (e->isCancelled()) {
+                this->onLoadFailed();
+            }
+            });
 
-        auto btn = CCMenuItemSpriteExtra::create(circle, this, nullptr);
-        btn->setEnabled(false);
+        std::string url = fmt::format("https://streak-servidor.onrender.com/players/{}", accountManager->m_accountID);
+        auto req = web::WebRequest();
+        m_fields->m_playerDataListener.setFilter(req.get(url));
+    }
+
+    void onLoadSuccess() {
+        if (m_fields->m_isReconnecting) {
+            this->unschedule(schedule_selector(MyMenuLayer::tryReconnect));
+            m_fields->m_isReconnecting = false;
+        }
+        g_streakData.isDataLoaded = true;
+        g_streakData.m_initialized = true;
+        g_streakData.dailyUpdate();
+        this->createStreakButton(ButtonState::Active);
+    }
+
+    void onLoadFailed() {
+        // MARCAR COMO NO CARGADO ES CRÍTICO
+        g_streakData.isDataLoaded = false;
+        g_streakData.m_initialized = false;
+
+        // MOSTRAR ERROR VISUALMENTE
+        this->createStreakButton(ButtonState::Error);
+
+        if (!m_fields->m_isReconnecting) {
+            m_fields->m_isReconnecting = true;
+            this->schedule(schedule_selector(MyMenuLayer::tryReconnect), 5.0f);
+        }
+    }
+
+    void createStreakButton(ButtonState state) {
+        auto menu = this->getChildByID("bottom-menu");
+        if (!menu) return;
+        if (auto oldBtn = menu->getChildByID("streak-button"_spr)) oldBtn->removeFromParentAndCleanup(true);
+
+        CCSprite* icon = nullptr;
+        CircleBaseColor color = CircleBaseColor::Gray;
+
+        switch (state) {
+        case ButtonState::Loading:
+            icon = CCSprite::createWithSpriteFrameName("GJ_updateBtn_001.png");
+            break;
+        case ButtonState::Error:
+            icon = CCSprite::createWithSpriteFrameName("exMark_001.png");
+            break;
+        case ButtonState::Active:
+            std::string spriteName = g_streakData.getRachaSprite();
+            if (!spriteName.empty()) icon = CCSprite::create(spriteName.c_str());
+            if (!icon) icon = CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png");
+            color = CircleBaseColor::Green;
+            break;
+        }
+
+        if (!icon) return;
+        icon->setScale(0.5f);
+        auto circle = CircleButtonSprite::create(icon, color, CircleBaseSize::Medium);
+
+        if (state == ButtonState::Loading) {
+            icon->runAction(CCRepeatForever::create(CCRotateBy::create(1.0f, 360.f)));
+        }
+
+        if (state == ButtonState::Active) {
+            int requiredPoints = g_streakData.getRequiredPoints();
+            if (requiredPoints > 0 && g_streakData.streakPointsToday < requiredPoints) {
+                auto alertSprite = CCSprite::createWithSpriteFrameName("exMark_001.png");
+                if (alertSprite) {
+                    alertSprite->setScale(0.4f);
+                    alertSprite->setPosition({ circle->getContentSize().width - 12, circle->getContentSize().height - 12 });
+                    alertSprite->setZOrder(10);
+                    alertSprite->runAction(CCRepeatForever::create(CCBlink::create(2.0f, 3)));
+                    circle->addChild(alertSprite);
+                }
+            }
+        }
+
+        SEL_MenuHandler callback = nullptr;
+        if (state == ButtonState::Active) callback = menu_selector(MyMenuLayer::onOpenPopup);
+        else if (state == ButtonState::Error) callback = menu_selector(MyMenuLayer::onErrorButtonClick);
+
+        auto btn = CCMenuItemSpriteExtra::create(circle, this, callback);
         btn->setID("streak-button"_spr);
-        btn->setPositionY(btn->getPositionY() + 5);
+
+        if (state == ButtonState::Loading) {
+            btn->setEnabled(false);
+            btn->setOpacity(150);
+        }
+
         menu->addChild(btn);
         menu->updateLayout();
     }
 
-  
-
-    void loadPlayerData() {
-        auto accountManager = GJAccountManager::sharedState();
-
-        log::info("Resetting local g_streakData before loading...");
-        g_streakData.resetToDefault();
-      
-       
-        if (!accountManager || accountManager->m_accountID == 0) {
-            log::info("Player not logged in or accountManager is null. Using default data.");
-            g_streakData.m_initialized = true;
-            g_streakData.isDataLoaded = true;
-            
-            g_streakData.dailyUpdate();
-            this->createFinalButton(); 
+    void onErrorButtonClick(CCObject*) {
+        if (g_streakData.isBanned) {
+            createQuickPopup("ACCOUNT BANNED", "You have been <cr>BANNED</c> from Streak Mod.\nReason: <cy>" + g_streakData.banReason + "</c>", "OK", "Discord", [](FLAlertLayer*, bool btn2) {
+                if (btn2) cocos2d::CCApplication::sharedApplication()->openURL("https://discord.gg/vEPWBuFEn5");
+                });
             return;
         }
-
-      
-        m_fields->m_playerDataListener.bind([this](web::WebTask::Event* e) {
-           
-            bool loadSuccess = false; 
-
-            if (web::WebResponse* res = e->getValue()) {
-              
-                if (res->ok() && res->json().isOk()) {
-                    log::info("Player data found, parsing response.");
-                   
-                    g_streakData.parseServerResponse(res->json().unwrap());
-                    loadSuccess = true;
-                }
-              
-                else if (res->code() == 404) {
-                    log::info("New player detected. Creating profile on server.");
-                  
-                    g_streakData.dailyUpdate();
-                    updatePlayerDataInFirebase(); 
-                    loadSuccess = true; 
-                }
-              
-                else {
-                    log::error("Failed to load player data. Response code: {}", res->code());
-                  
-                }
-
-               
-                if (loadSuccess) {
-                    log::info("Calling dailyUpdate after successful data load/init.");
-                   
-                    
-                    g_streakData.dailyUpdate();
-                    
-                    g_streakData.m_initialized = true;
-                    g_streakData.isDataLoaded = true;
-                  
-                    this->createFinalButton();
-                }
-                else {
-           
-                    this->createErrorButton();
-                }
-              
-
-            }
-            else if (e->isCancelled()) {
-             
-                log::error("Player data request cancelled or network failed.");
-                this->createErrorButton();
-               
-            }
-            });
-
-      
-        std::string url = fmt::format("https://streak-servidor.onrender.com/players/{}", accountManager->m_accountID);
-        auto req = web::WebRequest();
-       
-        m_fields->m_playerDataListener.setFilter(req.get(url));
-        log::info("Sent request to load player data for account {}", accountManager->m_accountID);
-    }
-
-    void createFinalButton() {
-      
-        auto menu = this->getChildByID("bottom-menu");
-        if (!menu) return;
-
-        if (auto oldBtn = menu->getChildByID("streak-button"_spr)) {
-            oldBtn->removeFromParentAndCleanup(true);
-        }
-
-        std::string spriteName = g_streakData.getRachaSprite();
-        CCSprite* icon = CCSprite::create(spriteName.c_str());
-
-        if (!icon) {
-            icon = CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png");
-        }
-        if (!icon) return; 
-
-        icon->setScale(0.5f);
-        auto circle = CircleButtonSprite::create(icon, CircleBaseColor::Green, CircleBaseSize::Medium);
-        if (!circle) return;
-
-        int requiredPoints = g_streakData.getRequiredPoints();
-        bool streakInactive = (g_streakData.streakPointsToday < requiredPoints);
-
-        if (streakInactive) {
-            auto alertSprite = CCSprite::createWithSpriteFrameName("exMark_001.png");
-            if (alertSprite) {
-                alertSprite->setScale(0.4f);
-                alertSprite->setPosition({ circle->getContentSize().width - 12, circle->getContentSize().height - 12 });
-                alertSprite->setZOrder(10);
-                alertSprite->runAction(CCRepeatForever::create(CCBlink::create(2.0f, 3)));
-                circle->addChild(alertSprite);
-            }
-        }
-
-        auto newBtn = CCMenuItemSpriteExtra::create(circle, this, menu_selector(MyMenuLayer::onOpenPopup));
-        if (!newBtn) return;
-
-        newBtn->setID("streak-button"_spr);
-        newBtn->setPositionY(newBtn->getPositionY() + 5);
-        newBtn->setEnabled(true);
-        menu->addChild(newBtn);
-        menu->updateLayout();
-    }
-
-    void createErrorButton() {
-       
-        auto menu = this->getChildByID("bottom-menu");
-        if (!menu) return;
-
-        if (auto oldBtn = menu->getChildByID("streak-button"_spr)) {
-            oldBtn->removeFromParentAndCleanup(true);
-        }
-
-        auto errorIcon = CCSprite::createWithSpriteFrameName("exMark_001.png");
-        if (!errorIcon) return;
-
-        errorIcon->setScale(0.5f);
-        auto circle = CircleButtonSprite::create(errorIcon, CircleBaseColor::Gray, CircleBaseSize::Medium);
-        if (!circle) return;
-
-        auto errorBtn = CCMenuItemSpriteExtra::create(circle, this, nullptr); 
-        errorBtn->setEnabled(false); 
-        errorBtn->setID("streak-button"_spr);
-        errorBtn->setPositionY(errorBtn->getPositionY() + 5);
-        menu->addChild(errorBtn);
-        menu->updateLayout();
+        FLAlertLayer::create("Connection Failed", "<cr>Internet connection required.</c>\nRetrying in background...", "OK")->show();
     }
 
     void onOpenPopup(CCObject * sender) {
-        if (g_streakData.isInitialized()) {
-            InfoPopup::create()->show();
+        if (!g_streakData.isDataLoaded && !g_streakData.needsRegistration) {
+            this->onErrorButtonClick(nullptr);
+            return;
         }
-        else {
-            FLAlertLayer::create("Loading", "The streak data is still loading. Please wait.", "OK")->show();
+        if (g_streakData.isBanned) {
+            this->onErrorButtonClick(nullptr);
+            return;
         }
+        InfoPopup::create()->show();
     }
 };
+
 
 class $modify(MyCommentCell, CommentCell) {
     struct Fields {

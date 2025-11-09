@@ -23,7 +23,10 @@ struct StreakData {
     int superStars;
     int lastRouletteIndex;
     int totalSpins;
+    bool needsRegistration = false;
     int lastStreakAnimated = 0;
+    bool isBanned = false;             // Para saber si está baneado
+    std::string banReason = "";        // Para guardar la razón
     int starTickets;
     std::vector<int> streakCompletedLevels;
     std::map<std::string, int> streakPointsHistory;

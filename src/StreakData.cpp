@@ -24,6 +24,9 @@ void StreakData::resetToDefault() {
     equippedBadge = "";
     superStars = 0;
     lastStreakAnimated = 0;
+    needsRegistration = false;
+    isBanned = false;
+    banReason = "";
     starTickets = 0;
     lastRouletteIndex = 0;
     totalSpins = 0;
@@ -58,13 +61,18 @@ void StreakData::load() {
 }
 
 void StreakData::save() {
-    // Llama a la función que envía los datos al servidor.
+    // NUEVO: Protección de seguridad.
+    // Si no hemos cargado los datos, ¡NO SOBRESCRIBIR EL SERVIDOR!
+    if (!isDataLoaded && !m_initialized) {
+        // log::warn("Intento de guardado bloqueado: Datos no cargados aún.");
+        return;
+    }
     updatePlayerDataInFirebase();
 }
 
 void StreakData::parseServerResponse(const matjson::Value& data) {
     currentStreak = data["current_streak_days"].as<int>().unwrapOr(0);
-    lastStreakAnimated = data["last_streak_animated"].as<int>().unwrapOr(0); // <--- AÑADE ESTO
+    lastStreakAnimated = data["last_streak_animated"].as<int>().unwrapOr(0); 
     totalStreakPoints = data["total_streak_points"].as<int>().unwrapOr(0);
     equippedBadge = data["equipped_badge_id"].as<std::string>().unwrapOr("");
     superStars = data["super_stars"].as<int>().unwrapOr(0);
@@ -74,13 +82,11 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
     lastDay = data["last_day"].as<std::string>().unwrapOr("");
     streakPointsToday = data["streakPointsToday"].as<int>().unwrapOr(0);
 
-    // --- NUEVO: Cargar Rol Inteligente (Texto o Número) ---
-   // --- NUEVO: Cargar Rol Inteligente ---
-    userRole = 0; // Por defecto
+    userRole = 0;
     if (data.contains("role")) {
         if (data["role"].isString()) {
             std::string roleStr = data["role"].as<std::string>().unwrapOr("");
-            // Convertir a minúsculas
+            
             std::transform(roleStr.begin(), roleStr.end(), roleStr.begin(),
                 [](unsigned char c) { return std::tolower(c); });
 
@@ -92,23 +98,19 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         }
     }
 
-    // Cargar contador de mensajes diarios
+   
     dailyMsgCount = data["daily_msg_count"].as<int>().unwrapOr(0);
+    isBanned = data["ban"].as<bool>().unwrapOr(false);
+    banReason = data["ban_reason"].as<std::string>().unwrapOr("No reason provided.");
 
-    // --- TRUCO TEMPORAL PARA PRUEBAS (¡BORRAR LUEGO!) ---
-    // Esto te asegura ser admin mientras pruebas, aunque tu DB diga lo contrario.
-    if (GJAccountManager::sharedState()->m_accountID == 24453544) {
-        userRole = 2;
-        log::info("DEV MODE: Forced ADMIN role for testing.");
-    }
-    // ----------------------------------------------------
-
-    // Cargar insignias desbloqueadas
-    if (unlockedBadges.size() != badges.size()) { // Asegurar tamaño
+    
+  
+   
+    if (unlockedBadges.size() != badges.size()) { 
         unlockedBadges.assign(badges.size(), false);
     }
     else {
-        std::fill(unlockedBadges.begin(), unlockedBadges.end(), false); // Resetear
+        std::fill(unlockedBadges.begin(), unlockedBadges.end(), false); 
     }
     if (data.contains("unlocked_badges")) {
         auto badgesResult = data["unlocked_badges"].as<std::vector<matjson::Value>>();
@@ -122,7 +124,7 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         }
     }
 
-    // Cargar estado de misiones diarias
+   
     pointMission1Claimed = false; pointMission2Claimed = false; pointMission3Claimed = false;
     pointMission4Claimed = false; pointMission5Claimed = false; pointMission6Claimed = false;
     if (data.contains("missions")) {
@@ -141,7 +143,7 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         }
     }
 
-    // Cargar historial de puntos
+    
     streakPointsHistory.clear();
     if (data.contains("history")) {
         auto historyResult = data["history"].as<std::map<std::string, matjson::Value>>();
@@ -155,7 +157,7 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         }
     }
 
-    // --- Cargar Misiones de Nivel Completadas ---
+    
     completedLevelMissions.clear();
     if (data.contains("completedLevelMissions")) {
         auto missionsResult = data["completedLevelMissions"].as<std::map<std::string, matjson::Value>>();
@@ -248,6 +250,9 @@ bool StreakData::isBadgeEquipped(const std::string& badgeID) {
 }
 
 void StreakData::dailyUpdate() {
+    
+    if (!isDataLoaded) return;
+
     time_t now_t = time(nullptr);
     std::string today = getCurrentDate();
     if (today.empty()) return;

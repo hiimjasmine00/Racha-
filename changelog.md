@@ -1,3 +1,6 @@
+# 1.9.1
+- Fix bugs
+
 # 1.8.9
 - The design of the upper part was improved
 
