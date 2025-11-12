@@ -6,13 +6,13 @@
 #include <ctime>
 #include <cmath>
 #include <Geode/binding/GJAccountManager.hpp> // Necesario para el truco de admin temporal
-#include <algorithm> // Necesario para std::transform (convertir a min�sculas)
+#include <algorithm> // Necesario para std::transform (convertir a minúsculas)
 #include <cctype>    // Necesario para std::tolower
 
-// Definici�n de la variable global (importante)
+// Definición de la variable global (importante)
 StreakData g_streakData;
 
-// --- Implementaci�n de Funciones ---
+// --- Implementación de Funciones ---
 
 void StreakData::resetToDefault() {
     currentStreak = 0;
@@ -29,7 +29,7 @@ void StreakData::resetToDefault() {
     starTickets = 0;
     lastRouletteIndex = 0;
     totalSpins = 0;
-    streakCompletedLevels.clear(); // �A�n necesario?
+    streakCompletedLevels.clear(); // ¿Aún necesario?
     streakPointsHistory.clear();
     pointMission1Claimed = false;
     pointMission2Claimed = false;
@@ -37,7 +37,7 @@ void StreakData::resetToDefault() {
     pointMission4Claimed = false;
     pointMission5Claimed = false;
     pointMission6Claimed = false;
-    // Asegurar tama�o correcto y resetear a false
+    // Asegurar tamaño correcto y resetear a false
     if (unlockedBadges.size() != badges.size()) {
         unlockedBadges.assign(badges.size(), false);
     }
@@ -56,14 +56,14 @@ void StreakData::resetToDefault() {
 }
 
 void StreakData::load() {
-    // Vac�a a prop�sito - la carga real es en MenuLayer/AccountWatcher
+    // Vacía a propósito - la carga real es en MenuLayer/AccountWatcher
 }
 
 void StreakData::save() {
-    // NUEVO: Protecci�n de seguridad.
-    // Si no hemos cargado los datos, �NO SOBRESCRIBIR EL SERVIDOR!
+    // NUEVO: Protección de seguridad.
+    // Si no hemos cargado los datos, ¡NO SOBRESCRIBIR EL SERVIDOR!
     if (!isDataLoaded && !m_initialized) {
-        // log::warn("Intento de guardado bloqueado: Datos no cargados a�n.");
+        // log::warn("Intento de guardado bloqueado: Datos no cargados aún.");
         return;
     }
     updatePlayerDataInFirebase();
@@ -173,7 +173,7 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         }
     }
 
-    // Llamar a checkRewards DESPU�S de cargar todo
+    // Llamar a checkRewards DESPUÉS de cargar todo
     this->checkRewards();
 
     isDataLoaded = true;
@@ -364,8 +364,8 @@ void StreakData::addPoints(int count) {
 
     int currentRequired = getRequiredPoints();
 
-    // --- CORRECCI�N CR�TICA AQU� ---
-    // Verificamos si YA ten�as la meta cumplida ANTES de sumar los nuevos puntos.
+    // --- CORRECCIÓN CRÍTICA AQUÍ ---
+    // Verificamos si YA tenías la meta cumplida ANTES de sumar los nuevos puntos.
     bool alreadyReachedGoalToday = (streakPointsToday >= currentRequired);
 
     streakPointsToday += count;
@@ -376,7 +376,7 @@ void StreakData::addPoints(int count) {
         streakPointsHistory[today] = streakPointsToday;
     }
 
-    // Solo activamos la nueva racha si NO la ten�as antes Y AHORA S� la tienes.
+    // Solo activamos la nueva racha si NO la tenías antes Y AHORA SÍ la tienes.
     if (!alreadyReachedGoalToday && streakPointsToday >= currentRequired) {
         currentStreak++;
         hasNewStreak = true;
@@ -388,9 +388,9 @@ void StreakData::addPoints(int count) {
 }
 
 bool StreakData::shouldShowAnimation() {
-    // Si tenemos racha Y es mayor que la �ltima que celebramos...
+    // Si tenemos racha Y es mayor que la última que celebramos...
     if (currentStreak > 0 && currentStreak > lastStreakAnimated) {
-        return true; // ...mostramos la animaci�n.
+        return true; // ...mostramos la animación.
     }
     return false;
 }
