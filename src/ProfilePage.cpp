@@ -16,7 +16,7 @@ class $modify(MyProfilePage, ProfilePage) {
     };
 
     void onOtherStreakStatClick(CCObject * sender) {
-        auto userData = static_cast<CCArray*>(static_cast<CCNode*>(sender)->getUserObject());
+        auto userData = static_cast<CCArray*>(static_cast<CCNode*>(sender)->getUserObject("user-data"_spr));
         auto username = static_cast<CCString*>(userData->objectAtIndex(0))->getCString();
         int streakDays = static_cast<CCInteger*>(userData->objectAtIndex(1))->getValue();
         std::string alertContent = fmt::format(
@@ -28,7 +28,7 @@ class $modify(MyProfilePage, ProfilePage) {
     }
 
     void onBadgeInfoClick(CCObject * sender) {
-        if (auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())) {
+        if (auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject("badge"_spr))) {
             if (auto badgeInfo = g_streakData.getBadgeInfo(badgeID->getCString())) {
                 std::string title = badgeInfo->displayName;
                 std::string category = g_streakData.getCategoryName(badgeInfo->category);
@@ -85,7 +85,7 @@ class $modify(MyProfilePage, ProfilePage) {
                     if (badgeSprite) {
                         badgeSprite->setScale(0.2f);
                         auto badgeButton = CCMenuItemSpriteExtra::create(badgeSprite, this, menu_selector(MyProfilePage::onBadgeInfoClick));
-                        badgeButton->setUserObject(CCString::create(equippedBadge->badgeID));
+                        badgeButton->setUserObject("badge"_spr, CCString::create(equippedBadge->badgeID));
                         badgeButton->setID(STREAK_BADGE_ID);
                         username_menu->addChild(badgeButton);
                         username_menu->updateLayout();
@@ -112,53 +112,48 @@ class $modify(MyProfilePage, ProfilePage) {
                 if (web::WebResponse* res = e->getValue()) {
                     if (res->ok() && res->json().isOk()) {
                         auto playerData = res->json().unwrap();
-
-                        try {
-                            std::string badgeId = playerData["equipped_badge_id"].as<std::string>().unwrap();
+                        if (auto badgeIdResult = playerData["equipped_badge_id"].as<std::string>()) {
+                            std::string badgeId = badgeIdResult.unwrap();
                             if (!badgeId.empty() && g_streakData.getBadgeInfo(badgeId)) {
                                 if (auto username_menu = m_mainLayer->getChildByIDRecursive("username-menu")) {
                                     if (auto oldBadge = username_menu->getChildByID(STREAK_BADGE_ID)) oldBadge->removeFromParent();
                                     auto badgeSprite = CCSprite::create(g_streakData.getBadgeInfo(badgeId)->spriteName.c_str());
                                     badgeSprite->setScale(0.2f);
                                     auto badgeButton = CCMenuItemSpriteExtra::create(badgeSprite, this, menu_selector(MyProfilePage::onBadgeInfoClick));
-                                    badgeButton->setUserObject(CCString::create(badgeId));
+                                    badgeButton->setUserObject("badge"_spr, CCString::create(badgeId));
                                     badgeButton->setID(STREAK_BADGE_ID);
                                     username_menu->addChild(badgeButton);
                                     username_menu->updateLayout();
                                 }
                             }
                         }
-                        catch (const std::exception&) {}
 
-                        try {
-                            int totalPoints = playerData["total_streak_points"].as<int>().unwrapOr(0);
-                            int streakDays = playerData["current_streak_days"].as<int>().unwrapOr(0);
-                            if (auto statsMenu = m_mainLayer->getChildByIDRecursive("stats-menu")) {
-                                if (auto oldStat = statsMenu->getChildByID(STREAK_STAT_ID)) oldStat->removeFromParent();
-                                auto pointsLabel = CCLabelBMFont::create(std::to_string(totalPoints).c_str(), "bigFont.fnt");
-                                pointsLabel->setScale(0.6f);
-                                auto pointIcon = CCSprite::create("streak_point.png"_spr);
-                                pointIcon->setScale(0.2f);
-                                auto canvas = CCSprite::create();
-                                canvas->setContentSize({ pointsLabel->getScaledContentSize().width + pointIcon->getScaledContentSize().width + 2.f, 28.0f });
-                                canvas->setOpacity(0);
-                                float totalInnerWidth = pointsLabel->getScaledContentSize().width + pointIcon->getScaledContentSize().width + 2.f;
-                                pointsLabel->setPosition(ccp((canvas->getContentSize().width / 2) - (totalInnerWidth / 2) + (pointsLabel->getScaledContentSize().width / 2), canvas->getContentSize().height / 2));
-                                pointIcon->setPosition(ccp(pointsLabel->getPositionX() + (pointsLabel->getScaledContentSize().width / 2) + (pointIcon->getScaledContentSize().width / 2) + 2.f, canvas->getContentSize().height / 2));
-                                canvas->addChild(pointsLabel);
-                                canvas->addChild(pointIcon);
-                                auto statItem = CCMenuItemSpriteExtra::create(canvas, this, menu_selector(MyProfilePage::onOtherStreakStatClick));
-                                statItem->setTag(streakDays);
-                                auto userData = CCArray::create();
-                                userData->addObject(CCString::create(score->m_userName));
-                                userData->addObject(CCInteger::create(streakDays));
-                                statItem->setUserObject(userData);
-                                statItem->setID(STREAK_STAT_ID);
-                                statsMenu->addChild(statItem);
-                                statsMenu->updateLayout();
-                            }
+                        int totalPoints = playerData["total_streak_points"].as<int>().unwrapOr(0);
+                        int streakDays = playerData["current_streak_days"].as<int>().unwrapOr(0);
+                        if (auto statsMenu = m_mainLayer->getChildByIDRecursive("stats-menu")) {
+                            if (auto oldStat = statsMenu->getChildByID(STREAK_STAT_ID)) oldStat->removeFromParent();
+                            auto pointsLabel = CCLabelBMFont::create(std::to_string(totalPoints).c_str(), "bigFont.fnt");
+                            pointsLabel->setScale(0.6f);
+                            auto pointIcon = CCSprite::create("streak_point.png"_spr);
+                            pointIcon->setScale(0.2f);
+                            auto canvas = CCSprite::create();
+                            canvas->setContentSize({ pointsLabel->getScaledContentSize().width + pointIcon->getScaledContentSize().width + 2.f, 28.0f });
+                            canvas->setOpacity(0);
+                            float totalInnerWidth = pointsLabel->getScaledContentSize().width + pointIcon->getScaledContentSize().width + 2.f;
+                            pointsLabel->setPosition(ccp((canvas->getContentSize().width / 2) - (totalInnerWidth / 2) + (pointsLabel->getScaledContentSize().width / 2), canvas->getContentSize().height / 2));
+                            pointIcon->setPosition(ccp(pointsLabel->getPositionX() + (pointsLabel->getScaledContentSize().width / 2) + (pointIcon->getScaledContentSize().width / 2) + 2.f, canvas->getContentSize().height / 2));
+                            canvas->addChild(pointsLabel);
+                            canvas->addChild(pointIcon);
+                            auto statItem = CCMenuItemSpriteExtra::create(canvas, this, menu_selector(MyProfilePage::onOtherStreakStatClick));
+                            statItem->setTag(streakDays);
+                            auto userData = CCArray::create();
+                            userData->addObject(CCString::create(score->m_userName));
+                            userData->addObject(CCInteger::create(streakDays));
+                            statItem->setUserObject("user-data"_spr, userData);
+                            statItem->setID(STREAK_STAT_ID);
+                            statsMenu->addChild(statItem);
+                            statsMenu->updateLayout();
                         }
-                        catch (const std::exception&) {}
                     }
                 }
                 });

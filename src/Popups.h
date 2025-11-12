@@ -407,7 +407,7 @@ protected:
        
         if (isMissionClaimed) {
             auto checkmark = CCSprite::createWithSpriteFrameName("GJ_completesIcon_001.png"); checkmark->setScale(0.6f); checkmark->setPosition({ 255.f, 22.5f }); container->addChild(checkmark);
-            container->setOpacity(150); CCObject* child = nullptr; CCARRAY_FOREACH(container->getChildren(), child) { if (!child) continue; if (auto rgba = dynamic_cast<CCRGBAProtocol*>(child)) { if (dynamic_cast<CCSprite*>(child) != checkmark) { rgba->setOpacity(150); } } }
+            container->setOpacity(150); CCObject* child = nullptr; CCARRAY_FOREACH(container->getChildren(), child) { if (!child) continue; if (auto rgba = typeinfo_cast<CCRGBAProtocol*>(child)) { if (typeinfo_cast<CCSprite*>(child) != checkmark) { rgba->setOpacity(150); } } }
         }
         else if (isComplete) {
             auto claimBtnSprite = ButtonSprite::create("Claim"); claimBtnSprite->setScale(0.7f);
@@ -1045,7 +1045,7 @@ protected:
             spr->setScale(0.4f);
 
             auto btn = CCMenuItemSpriteExtra::create(spr, this, menu_selector(BadgeSelectorPopup::onBadgeSelected));
-            btn->setUserObject(CCString::create(badge.badgeID));
+            btn->setUserObject("badge"_spr, CCString::create(badge.badgeID));
             btn->setPosition({ startX + col * spacingX, startY - row * spacingY });
             menu->addChild(btn);
         }
@@ -1059,7 +1059,7 @@ protected:
 
     void onBadgeSelected(CCObject* sender) {
         if (m_onSelect) {
-            m_onSelect(static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())->getCString());
+            m_onSelect(static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject("badge"_spr))->getCString());
         }
         this->onClose(nullptr);
     }
@@ -1142,9 +1142,9 @@ protected:
     void onCreate(CCObject*) {
         std::string name = m_nameInput->getString(); std::string usesStr = m_usesInput->getString();
         if (name.empty() || usesStr.empty()) { Notification::create("Name and Uses required", NotificationIcon::Error)->show(); return; }
-        int uses = std::stoi(usesStr); if (uses <= 0) { Notification::create("Invalid uses", NotificationIcon::Error)->show(); return; }
-        m_pendingStars = m_starsInput->getString().empty() ? 0 : std::stoi(m_starsInput->getString());
-        m_pendingTickets = m_ticketsInput->getString().empty() ? 0 : std::stoi(m_ticketsInput->getString());
+        int uses = numFromString<int>(usesStr).unwrapOrDefault(); if (uses <= 0) { Notification::create("Invalid uses", NotificationIcon::Error)->show(); return; }
+        m_pendingStars = numFromString<int>(m_starsInput->getString()).unwrapOrDefault();
+        m_pendingTickets = numFromString<int>(m_ticketsInput->getString()).unwrapOrDefault();
 
         if (m_pendingStars == 0 && m_pendingTickets == 0 && m_selectedBadgeID.empty()) { Notification::create("Add rewards", NotificationIcon::Error)->show(); return; }
         if (m_pendingStars > 0 && m_pendingStars % uses != 0) { Notification::create("Stars must split evenly", NotificationIcon::Error)->show(); return; }
@@ -1409,13 +1409,13 @@ protected:
             CCMenuItemSpriteExtra* buyBtn = CCMenuItemSpriteExtra::create(
                 itemNode, this, menu_selector(ShopPopup::onBuyItem)
             );
-            buyBtn->setUserObject(CCString::create(badge->badgeID));
+            buyBtn->setUserObject("badge"_spr, CCString::create(badge->badgeID));
             buyBtn->setPosition({ startPos.x + col * spacingX, startPos.y - row * spacingY });
             m_itemMenu->addChild(buyBtn);
             if (g_streakData.isBadgeUnlocked(badge->badgeID)) {
                 buyBtn->setEnabled(false);
                 for (auto* child : CCArrayExt<CCNode*>(itemNode->getChildren())) {
-                    if (auto* rgbaNode = dynamic_cast<CCRGBAProtocol*>(child)) {
+                    if (auto* rgbaNode = typeinfo_cast<CCRGBAProtocol*>(child)) {
                         rgbaNode->setOpacity(100);
                     }
                 }
@@ -1429,7 +1429,7 @@ protected:
     }
 
     void onBuyItem(CCObject* sender) {
-        std::string badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())->getCString();
+        std::string badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject("badge"_spr))->getCString();
         auto badgeInfo = g_streakData.getBadgeInfo(badgeID);
         if (!badgeInfo) return;
         int price = m_shopItems[badgeID];
@@ -1491,7 +1491,7 @@ protected:
     std::vector<StreakData::BadgeInfo> m_pendingMythics;
 
     void runPopAnimation(CCObject* sender) {
-        if (auto node = dynamic_cast<CCNode*>(sender)) {
+        if (auto node = typeinfo_cast<CCNode*>(sender)) {
             auto popAction = CCSequence::create(
                 CCScaleTo::create(0.025f, 1.1f),
                 CCScaleTo::create(0.025f, 1.0f),
@@ -1502,7 +1502,7 @@ protected:
     }
 
     void runSlotAnimation(CCObject* sender) {
-        if (auto node = dynamic_cast<CCNode*>(sender)) {
+        if (auto node = typeinfo_cast<CCNode*>(sender)) {
             auto popAction = CCSequence::create(
                 CCScaleTo::create(0.02f, 1.1f),
                 CCScaleTo::create(0.02f, 1.0f),
@@ -3178,7 +3178,7 @@ protected:
             CCMenuItemSpriteExtra* badgeBtn;
             if (unlocked) {
                 badgeBtn = CCMenuItemSpriteExtra::create(badgeSprite, this, menu_selector(RewardsPopup::onBadgeClick));
-                badgeBtn->setUserObject(CCString::create(badge.badgeID));
+                badgeBtn->setUserObject("badge"_spr, CCString::create(badge.badgeID));
             }
             else {
                 badgeBtn = CCMenuItemSpriteExtra::create(badgeSprite, this, nullptr);
@@ -3212,7 +3212,7 @@ protected:
     }
 
     void onBadgeClick(CCObject* sender) {
-        auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())->getCString();
+        auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject("badge"_spr))->getCString();
         EquipBadgePopup::create(badgeID)->show();
     }
 
@@ -3425,11 +3425,8 @@ protected:
     void sendRequest(std::string endpoint, std::string targetIDStr, std::string reason) {
         m_buttonMenu->setEnabled(false);
 
-        int targetID;
-        try {
-            targetID = std::stoi(targetIDStr);
-        }
-        catch (...) {
+        auto targetID = numFromString<int>(targetIDStr);
+        if (!targetID.isOk()) {
             Notification::create("Invalid ID number!", NotificationIcon::Error)->show();
             m_buttonMenu->setEnabled(true);
             return;
@@ -3438,7 +3435,7 @@ protected:
         auto am = GJAccountManager::sharedState();
         matjson::Value payload = matjson::Value::object();
         payload.set("modAccountID", am->m_accountID);
-        payload.set("targetAccountID", targetID);
+        payload.set("targetAccountID", targetID.unwrap());
         if (!reason.empty()) payload.set("reason", reason);
 
         auto req = web::WebRequest();

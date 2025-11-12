@@ -5,15 +5,14 @@
 #include <iomanip>
 #include <ctime>
 #include <cmath>
-#include <stdexcept> // Para std::stoi excepciones
 #include <Geode/binding/GJAccountManager.hpp> // Necesario para el truco de admin temporal
-#include <algorithm> // Necesario para std::transform (convertir a minúsculas)
+#include <algorithm> // Necesario para std::transform (convertir a minï¿½sculas)
 #include <cctype>    // Necesario para std::tolower
 
-// Definición de la variable global (importante)
+// Definiciï¿½n de la variable global (importante)
 StreakData g_streakData;
 
-// --- Implementación de Funciones ---
+// --- Implementaciï¿½n de Funciones ---
 
 void StreakData::resetToDefault() {
     currentStreak = 0;
@@ -30,7 +29,7 @@ void StreakData::resetToDefault() {
     starTickets = 0;
     lastRouletteIndex = 0;
     totalSpins = 0;
-    streakCompletedLevels.clear(); // ¿Aún necesario?
+    streakCompletedLevels.clear(); // ï¿½Aï¿½n necesario?
     streakPointsHistory.clear();
     pointMission1Claimed = false;
     pointMission2Claimed = false;
@@ -38,7 +37,7 @@ void StreakData::resetToDefault() {
     pointMission4Claimed = false;
     pointMission5Claimed = false;
     pointMission6Claimed = false;
-    // Asegurar tamaño correcto y resetear a false
+    // Asegurar tamaï¿½o correcto y resetear a false
     if (unlockedBadges.size() != badges.size()) {
         unlockedBadges.assign(badges.size(), false);
     }
@@ -57,14 +56,14 @@ void StreakData::resetToDefault() {
 }
 
 void StreakData::load() {
-    // Vacía a propósito - la carga real es en MenuLayer/AccountWatcher
+    // Vacï¿½a a propï¿½sito - la carga real es en MenuLayer/AccountWatcher
 }
 
 void StreakData::save() {
-    // NUEVO: Protección de seguridad.
-    // Si no hemos cargado los datos, ¡NO SOBRESCRIBIR EL SERVIDOR!
+    // NUEVO: Protecciï¿½n de seguridad.
+    // Si no hemos cargado los datos, ï¿½NO SOBRESCRIBIR EL SERVIDOR!
     if (!isDataLoaded && !m_initialized) {
-        // log::warn("Intento de guardado bloqueado: Datos no cargados aún.");
+        // log::warn("Intento de guardado bloqueado: Datos no cargados aï¿½n.");
         return;
     }
     updatePlayerDataInFirebase();
@@ -163,18 +162,18 @@ void StreakData::parseServerResponse(const matjson::Value& data) {
         auto missionsResult = data["completedLevelMissions"].as<std::map<std::string, matjson::Value>>();
         if (missionsResult.isOk()) {
             for (const auto& [levelIDStr, _] : missionsResult.unwrap()) {
-                try {
-                    completedLevelMissions.insert(std::stoi(levelIDStr));
+                if (auto levelID = numFromString<int>(levelIDStr)) {
+                    completedLevelMissions.insert(levelID.unwrap());
                 }
-                catch (const std::exception& e) {
-                    log::warn("Error al convertir ID '{}': {}", levelIDStr, e.what());
+                else {
+                    log::warn("Error al convertir ID '{}': {}", levelIDStr, levelID.unwrapErr());
                 }
             }
             log::info("Loaded {} completed level missions.", completedLevelMissions.size());
         }
     }
 
-    // Llamar a checkRewards DESPUÉS de cargar todo
+    // Llamar a checkRewards DESPUï¿½S de cargar todo
     this->checkRewards();
 
     isDataLoaded = true;
@@ -365,8 +364,8 @@ void StreakData::addPoints(int count) {
 
     int currentRequired = getRequiredPoints();
 
-    // --- CORRECCIÓN CRÍTICA AQUÍ ---
-    // Verificamos si YA tenías la meta cumplida ANTES de sumar los nuevos puntos.
+    // --- CORRECCIï¿½N CRï¿½TICA AQUï¿½ ---
+    // Verificamos si YA tenï¿½as la meta cumplida ANTES de sumar los nuevos puntos.
     bool alreadyReachedGoalToday = (streakPointsToday >= currentRequired);
 
     streakPointsToday += count;
@@ -377,7 +376,7 @@ void StreakData::addPoints(int count) {
         streakPointsHistory[today] = streakPointsToday;
     }
 
-    // Solo activamos la nueva racha si NO la tenías antes Y AHORA SÍ la tienes.
+    // Solo activamos la nueva racha si NO la tenï¿½as antes Y AHORA Sï¿½ la tienes.
     if (!alreadyReachedGoalToday && streakPointsToday >= currentRequired) {
         currentStreak++;
         hasNewStreak = true;
@@ -389,9 +388,9 @@ void StreakData::addPoints(int count) {
 }
 
 bool StreakData::shouldShowAnimation() {
-    // Si tenemos racha Y es mayor que la última que celebramos...
+    // Si tenemos racha Y es mayor que la ï¿½ltima que celebramos...
     if (currentStreak > 0 && currentStreak > lastStreakAnimated) {
-        return true; // ...mostramos la animación.
+        return true; // ...mostramos la animaciï¿½n.
     }
     return false;
 }

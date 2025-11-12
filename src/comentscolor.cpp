@@ -38,10 +38,10 @@ class $modify(MyColoredCommentCell, CommentCell) {
         }
 
         if (textObject) {
-            if (auto label = dynamic_cast<CCLabelBMFont*>(textObject)) {
+            if (auto label = typeinfo_cast<CCLabelBMFont*>(textObject)) {
                 label->setColor(color);
             }
-            else if (auto textArea = dynamic_cast<TextArea*>(textObject)) {
+            else if (auto textArea = typeinfo_cast<TextArea*>(textObject)) {
                 textArea->setColor(color);
                 textArea->colorAllCharactersTo(color);
             }
@@ -76,17 +76,12 @@ class $modify(MyColoredCommentCell, CommentCell) {
             m_fields->m_mythicCheckListener.bind([this](web::WebTask::Event* e) {
                 if (web::WebResponse* res = e->getValue()) {
                     if (res->ok() && res->json().isOk()) {
-                        try {
-                            auto playerData = res->json().unwrap();
-                           
-                            bool hasMythic = playerData["has_mythic_color"].as<bool>().unwrapOr(false);
-                            if (hasMythic) {
-                               
-                                this->schedule(schedule_selector(MyColoredCommentCell::updateRainbowEffect));
-                            }
-                        }
-                        catch (const std::exception&) {
-                           
+                        auto playerData = res->json().unwrap();
+                        
+                        bool hasMythic = playerData["has_mythic_color"].as<bool>().unwrapOr(false);
+                        if (hasMythic) {
+                            
+                            this->schedule(schedule_selector(MyColoredCommentCell::updateRainbowEffect));
                         }
                     }
                 }

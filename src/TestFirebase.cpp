@@ -31,18 +31,10 @@ void loadPlayerDataFromServer() {
     s_loadListener.bind([accountID](web::WebTask::Event* e) {
         if (web::WebResponse* res = e->getValue()) {
             if (res->ok() && res->json().isOk()) {
-                try {
-                    g_streakData.parseServerResponse(res->json().unwrap());
-                    g_streakData.isDataLoaded = true;
-                    g_streakData.m_initialized = true; // ¡IMPORTANTE!
-                    log::info("☁️✅ Datos recibidos y procesados.");
-                }
-                catch (const std::exception& err) {
-                    log::error("☁️❌ Error al leer JSON: {}", err.what());
-                    g_streakData.resetToDefault();
-                    g_streakData.isDataLoaded = true;
-                    g_streakData.m_initialized = true;
-                }
+                g_streakData.parseServerResponse(res->json().unwrap());
+                g_streakData.isDataLoaded = true;
+                g_streakData.m_initialized = true; // ¡IMPORTANTE!
+                log::info("☁️✅ Datos recibidos y procesados.");
             }
             // --- NUEVO: MANEJO ESPECÍFICO PARA 404 ---
             else if (res->code() == 404) {

@@ -258,7 +258,7 @@ class $modify(MyCommentCell, CommentCell) {
     };
 
     void onBadgeInfoClick(CCObject * sender) {
-        if (auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject())) {
+        if (auto badgeID = static_cast<CCString*>(static_cast<CCNode*>(sender)->getUserObject("badge"_spr))) {
             if (auto badgeInfo = g_streakData.getBadgeInfo(badgeID->getCString())) {
                 std::string title = badgeInfo->displayName;
                 std::string category = g_streakData.getCategoryName(badgeInfo->category);
@@ -284,7 +284,7 @@ class $modify(MyCommentCell, CommentCell) {
                         auto badgeButton = CCMenuItemSpriteExtra::create(
                             badgeSprite, this, menu_selector(MyCommentCell::onBadgeInfoClick)
                         );
-                        badgeButton->setUserObject(CCString::create(equippedBadge->badgeID));
+                        badgeButton->setUserObject("badge"_spr, CCString::create(equippedBadge->badgeID));
                         badgeButton->setID("streak-badge"_spr);
                         username_menu->addChild(badgeButton);
                         username_menu->updateLayout();
@@ -297,9 +297,9 @@ class $modify(MyCommentCell, CommentCell) {
             m_fields->m_badgeListener.bind([this, p0](web::WebTask::Event* e) {
                 if (web::WebResponse* res = e->getValue()) {
                     if (res->ok() && res->json().isOk()) {
-                        try {
-                            auto playerData = res->json().unwrap();
-                            std::string badgeId = playerData["equipped_badge_id"].as<std::string>().unwrap();
+                        auto playerData = res->json().unwrap();
+                        if (auto badgeIdResult = playerData["equipped_badge_id"].as<std::string>()) {
+                            std::string badgeId = badgeIdResult.unwrap();
                             if (!badgeId.empty()) {
                                 auto badgeInfo = g_streakData.getBadgeInfo(badgeId);
                                 if (badgeInfo) {
@@ -309,15 +309,15 @@ class $modify(MyCommentCell, CommentCell) {
                                         auto badgeButton = CCMenuItemSpriteExtra::create(
                                             badgeSprite, this, menu_selector(MyCommentCell::onBadgeInfoClick)
                                         );
-                                        badgeButton->setUserObject(CCString::create(badgeInfo->badgeID));
+                                        badgeButton->setUserObject("badge"_spr, CCString::create(badgeInfo->badgeID));
                                         username_menu->addChild(badgeButton);
                                         username_menu->updateLayout();
                                     }
                                 }
                             }
                         }
-                        catch (const std::exception& ex) {
-                            log::debug("Player {} (commenter) has no badge: {}", p0->m_accountID, ex.what());
+                        else {
+                            log::debug("Player {} (commenter) has no badge: {}", p0->m_accountID, badgeIdResult.unwrapErr());
                         }
                     }
                 }
